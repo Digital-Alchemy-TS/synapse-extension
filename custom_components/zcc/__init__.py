@@ -1,4 +1,4 @@
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.discovery import async_load_platform
 
 from .const import DOMAIN
@@ -41,6 +41,11 @@ async def async_setup(hass: HomeAssistant, config):
         async_load_platform(hass, "sensor", DOMAIN, {}, config)
     )
 
-    hass.bus.async_fire("zcc_app_reload_all")
+    @callback
+    def on_homeassistant_start(event):
+        hass.bus.async_fire("zcc_app_reload_all")
+
+    hass.bus.async_listen_once("homeassistant_start", on_homeassistant_start)
+
 
     return True
