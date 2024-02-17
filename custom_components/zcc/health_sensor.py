@@ -42,6 +42,7 @@ class HealthCheckSensor(BinarySensorEntity):
     async def async_added_to_hass(self):
         """Run when this Entity has been added to Home Assistant."""
         self.hass.bus.async_listen(f"zcc_heartbeat_{self._app}", self.handle_heartbeat)
+        self.hass.bus.async_listen(f"zcc_application_shutdown_{self._app}", self.handle_shutdown)
         self.reset_heartbeat_timer()
 
     @callback
@@ -54,6 +55,7 @@ class HealthCheckSensor(BinarySensorEntity):
             return
 
         # ? Update flags, and send an update event
+        _LOGGER.debug(f"{self._app} is alive again!")
         self.hass.data[DOMAIN]["health_status"][self._app] = True
         self.async_write_ha_state()
         self.hass.bus.async_fire(f"zcc_health_{self._app}")
@@ -64,6 +66,13 @@ class HealthCheckSensor(BinarySensorEntity):
             self._heartbeat_timer.cancel()
 
         self._heartbeat_timer = self.hass.loop.call_later(30, self.mark_as_dead)
+
+    def handle_shutdown(self):
+        _LOGGER.debug(f"{self._app} notified going offline")
+        self.hass.data[DOMAIN]["health_status"][self._app] = False
+        self.async_write_ha_state()
+        if self._heartbeat_timer:
+            self._heartbeat_timer.cancel()
 
     def mark_as_dead(self):
         """Actions to take when the application is considered dead."""
