@@ -67,10 +67,11 @@ class HealthCheckSensor(BinarySensorEntity):
 
         self._heartbeat_timer = self.hass.loop.call_later(30, self.mark_as_dead)
 
-    def handle_shutdown(self):
+    def handle_shutdown(self, event):
         _LOGGER.debug(f"{self._app} notified going offline")
         self.hass.data[DOMAIN]["health_status"][self._app] = False
         self.async_write_ha_state()
+        self.hass.bus.async_fire(f"zcc_health_{self._app}")
         if self._heartbeat_timer:
             self._heartbeat_timer.cancel()
 
