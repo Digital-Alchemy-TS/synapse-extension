@@ -1,0 +1,8 @@
+{
+  "domain": "synapse",
+  "name": "Synapse Virtual Entities",
+  "dependencies": ["http"],
+  "codeowners": ["@zoe-codez"],
+  "requirements": ["requests>=2.25.1"],
+  "version": "0.1"
+}
