@@ -7,7 +7,7 @@ import logging
 
 
 async def async_setup(hass: HomeAssistant, config):
-    """Set up the ZCC component."""
+    """Set up the Synapse component."""
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {}
 
@@ -43,7 +43,7 @@ async def async_setup(hass: HomeAssistant, config):
 
     @callback
     def on_homeassistant_start(event):
-        hass.bus.async_fire("zcc_app_reload_all")
+        hass.bus.async_fire("digital_alchemy_app_reload_all")
 
     hass.bus.async_listen_once("homeassistant_start", on_homeassistant_start)
 

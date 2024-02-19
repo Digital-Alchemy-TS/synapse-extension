@@ -9,11 +9,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Setup the router platform."""
-    await generic_setup(hass, "scene", ZccScene, async_add_entities)
+    await generic_setup(hass, "scene", SynapseScene, async_add_entities)
     _LOGGER.debug("loaded")
     return True
 
-class ZccScene(SceneEntity):
+class SynapseScene(SceneEntity):
     def __init__(self, hass, app, entity):
         """Initialize the scene."""
         self.hass = hass
@@ -51,7 +51,7 @@ class ZccScene(SceneEntity):
     async def async_activate(self):
         """Activate the scene."""
         _LOGGER.info(f"activate scene {self._name} (ID: {self._id})")
-        self.hass.bus.async_fire("zcc_activate", {"id": self._id})
+        self.hass.bus.async_fire("digital_alchemy_activate", {"id": self._id})
 
     def update_info(self, entity):
         """Update the scene's information."""
@@ -63,7 +63,7 @@ class ZccScene(SceneEntity):
         """When entity is added to Home Assistant."""
         self.async_on_remove(
             self.hass.bus.async_listen(
-                f"zcc_health_{self._app}", self._handle_health_update
+                f"digital_alchemy_health_{self._app}", self._handle_health_update
             )
         )
 

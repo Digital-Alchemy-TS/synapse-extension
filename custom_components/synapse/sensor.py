@@ -9,11 +9,12 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Setup the router platform."""
-    await generic_setup(hass, "sensor", ZccSensor, async_add_entities)
+    await generic_setup(hass, "sensor", SynapseSensor, async_add_entities)
     _LOGGER.debug("loaded")
     return True
 
-class ZccSensor(SensorEntity):
+
+class SynapseSensor(SensorEntity):
     def __init__(self, hass, app, entity):
         self.hass = hass
         self._app = app
@@ -49,6 +50,9 @@ class ZccSensor(SensorEntity):
     def extra_state_attributes(self):
         return {**self._attributes, "Managed By": self._app}
 
+    def export_data(self):
+        return {"state": self._state, "attributes": self._attributes}
+
     async def receive_update(self, entity):
         self.set_attributes(entity)
         self.async_write_ha_state()
@@ -83,11 +87,11 @@ class ZccSensor(SensorEntity):
         """When entity is added to Home Assistant."""
         self.async_on_remove(
             self.hass.bus.async_listen(
-                f"zcc_health_{self._app}", self._handle_health_update
+                f"digital_alchemy_health_{self._app}", self._handle_health_update
             )
         )
         self.async_on_remove(
-            self.hass.bus.async_listen("zcc_event", self._handle_event_sensor)
+            self.hass.bus.async_listen("digital_alchemy_event", self._handle_event_sensor)
         )
 
     async def _handle_event_sensor(self, event):

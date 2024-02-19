@@ -25,13 +25,13 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             hass.data[DOMAIN]["health_sensor"][app] = incoming
             async_add_entities([incoming], True)
 
-    hass.bus.async_listen("zcc_application_state", handle_application_upgrade)
-    await generic_setup(hass, "binary_sensor", ZccBinarySensor, async_add_entities)
+    hass.bus.async_listen("digital_alchemy_application_state", handle_application_upgrade)
+    await generic_setup(hass, "binary_sensor", SynapseBinarySensor, async_add_entities)
     _LOGGER.debug("loaded")
     return True
 
 
-class ZccBinarySensor(BinarySensorEntity):
+class SynapseBinarySensor(BinarySensorEntity):
     def __init__(self, hass, app, entity):
         self.hass = hass
         self._app = app
@@ -62,6 +62,9 @@ class ZccBinarySensor(BinarySensorEntity):
     def available(self):
         return self.hass.data[DOMAIN]["health_status"].get(self._app, False)
 
+    def export_data(self):
+        return {"state": self._state}
+
     def set_attributes(self, entity):
         self._id = entity.get("id")
         self._name = entity.get("name")
@@ -76,12 +79,12 @@ class ZccBinarySensor(BinarySensorEntity):
         """When entity is added to Home Assistant."""
         self.async_on_remove(
             self.hass.bus.async_listen(
-                f"zcc_health_{self._app}", self._handle_health_update
+                f"digital_alchemy_health_{self._app}", self._handle_health_update
             )
         )
 
         self.async_on_remove(
-            self.hass.bus.async_listen("zcc_event", self.handle_binary_sensor_event)
+            self.hass.bus.async_listen("digital_alchemy_event", self.handle_binary_sensor_event)
         )
 
     @callback

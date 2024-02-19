@@ -41,8 +41,8 @@ class HealthCheckSensor(BinarySensorEntity):
 
     async def async_added_to_hass(self):
         """Run when this Entity has been added to Home Assistant."""
-        self.hass.bus.async_listen(f"zcc_heartbeat_{self._app}", self.handle_heartbeat)
-        self.hass.bus.async_listen(f"zcc_application_shutdown_{self._app}", self.handle_shutdown)
+        self.hass.bus.async_listen(f"digital_alchemy_heartbeat_{self._app}", self.handle_heartbeat)
+        self.hass.bus.async_listen(f"digital_alchemy_application_shutdown_{self._app}", self.handle_shutdown)
         self.reset_heartbeat_timer()
 
     @callback
@@ -58,7 +58,7 @@ class HealthCheckSensor(BinarySensorEntity):
         _LOGGER.debug(f"{self._app} is alive again!")
         self.hass.data[DOMAIN]["health_status"][self._app] = True
         self.async_write_ha_state()
-        self.hass.bus.async_fire(f"zcc_health_{self._app}")
+        self.hass.bus.async_fire(f"digital_alchemy_health_{self._app}")
 
     def reset_heartbeat_timer(self):
         """Reset the heartbeat timer to detect unavailability."""
@@ -71,7 +71,7 @@ class HealthCheckSensor(BinarySensorEntity):
         _LOGGER.debug(f"{self._app} notified going offline")
         self.hass.data[DOMAIN]["health_status"][self._app] = False
         self.async_write_ha_state()
-        self.hass.bus.async_fire(f"zcc_health_{self._app}")
+        self.hass.bus.async_fire(f"digital_alchemy_health_{self._app}")
         if self._heartbeat_timer:
             self._heartbeat_timer.cancel()
 
@@ -84,7 +84,7 @@ class HealthCheckSensor(BinarySensorEntity):
         _LOGGER.info(f"failed to receive health check for {self._app}")
         self.hass.data[DOMAIN]["health_status"][self._app] = False
         self.async_write_ha_state()
-        self.hass.bus.async_fire(f"zcc_health_{self._app}")
+        self.hass.bus.async_fire(f"digital_alchemy_health_{self._app}")
 
     async def async_will_remove_from_hass(self):
         """Cleanup the timer when entity is removed."""

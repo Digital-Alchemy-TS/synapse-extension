@@ -9,11 +9,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Setup the router platform."""
-    await generic_setup(hass, "button", ZccButton, async_add_entities)
+    await generic_setup(hass, "button", SynapseButton, async_add_entities)
     _LOGGER.debug("loaded")
     return True
 
-class ZccButton(ButtonEntity):
+class SynapseButton(ButtonEntity):
     def __init__(self, hass, app, entity):
         """Initialize the button."""
         self.hass = hass
@@ -54,14 +54,14 @@ class ZccButton(ButtonEntity):
 
     async def async_press(self):
         """Handle the button press."""
-        _LOGGER.debug(f"emit zcc_button_press for {self._name} ({self._id})")
-        self.hass.bus.async_fire("zcc_activate", {"id": self._id})
+        _LOGGER.debug(f"emit digital_alchemy_button_press for {self._name} ({self._id})")
+        self.hass.bus.async_fire("digital_alchemy_activate", {"id": self._id})
 
     async def async_added_to_hass(self):
         """When entity is added to Home Assistant."""
         self.async_on_remove(
             self.hass.bus.async_listen(
-                f"zcc_health_{self._app}", self._handle_health_update
+                f"digital_alchemy_health_{self._app}", self._handle_health_update
             )
         )
 

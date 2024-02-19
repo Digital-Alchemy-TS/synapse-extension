@@ -9,11 +9,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Setup the router platform."""
-    await generic_setup(hass, "switch", ZccSwitch, async_add_entities)
+    await generic_setup(hass, "switch", SynapseSwitch, async_add_entities)
     _LOGGER.debug("loaded")
     return True
 
-class ZccSwitch(SwitchEntity):
+class SynapseSwitch(SwitchEntity):
     def __init__(self, hass, app, entity):
         """Initialize the switch."""
         self.hass = hass
@@ -68,17 +68,17 @@ class ZccSwitch(SwitchEntity):
             self._state = new_state == "on"
             self.async_write_ha_state()
             self.hass.bus.async_fire(
-                "zcc_switch_update", {"data": {"switch": self._id, "state": new_state}}
+                "digital_alchemy_switch_update", {"data": {"switch": self._id, "state": new_state}}
             )
 
     async def async_added_to_hass(self):
         """When entity is added to Home Assistant."""
         self.async_on_remove(
-            self.hass.bus.async_listen("zcc_event", self._handle_switch_update)
+            self.hass.bus.async_listen("digital_alchemy_event", self._handle_switch_update)
         )
         self.async_on_remove(
             self.hass.bus.async_listen(
-                f"zcc_health_{self._app}", self._handle_health_update
+                f"digital_alchemy_health_{self._app}", self._handle_health_update
             )
         )
 
