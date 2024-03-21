@@ -4,7 +4,8 @@ Welcome to the Synapse custom component for Home Assistant!
 
 This library works with [@digital-alchemy/synapse](https://github.com/Digital-Alchemy-TS/synapse) to allow Typescript based applications to create custom entities.
 
-> See more at the [extended docs](https://docs.digital-alchemy.app/02-Home-Automation/02.09-synapse-extension/%F0%9F%A7%AD-Synapse-Extension-Overview)
+- Extended docs: https://docs.digital-alchemy.app/Synapse-Extension
+- Discord: https://discord.digital-alchemy.app
 
 ## 🚀 Installing Synapse
 
