@@ -1,110 +1,164 @@
-from homeassistant.components.sensor import SensorEntity
+from .bridge import SynapseBridge
 from .const import DOMAIN
-from homeassistant.core import callback
+
+from homeassistant.components.sensor import SensorEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import callback, HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 import logging
-from .platform import generic_setup
-
-_LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+class SynapseSensorDefinition:
+    attributes: object
+    capability_attributes: int
+    device_class: str
+    entity_category: str
+    icon: str
+    unique_id: str
+    name: str
+    state: str | int
+    state_class: str
+    native_unit_of_measurement: str
+    suggested_object_id: str
+    supported_features: int
+    translation_key: str
+    suggested_display_precision: int
+    last_reset: str
+    options: list[str]
+    unit_of_measurement: str
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
     """Setup the router platform."""
-    await generic_setup(hass, "sensor", SynapseSensor, async_add_entities)
-    _LOGGER.debug("loaded")
-    return True
+    bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
+    sensors = bridge.config_entry.get("sensor")
+    async_add_entities(SynapseSensor(hass, bridge, entity) for entity in sensors)
 
 
 class SynapseSensor(SensorEntity):
-    def __init__(self, hass, app, entity):
+    def __init__(
+        self, hass: HomeAssistant, hub: SynapseBridge, entity: SynapseSensorDefinition
+    ):
         self.hass = hass
-        self._app = app
-        self.set_attributes(entity)
+        self.bridge = hub
+        self.entity = entity
+        self.logger = logging.getLogger(__name__)
+        self._listen()
+
+    # common to all
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device registry information for this entity."""
+        return self.bridge.device
 
     @property
     def unique_id(self):
-        """Return a unique ID."""
-        return self._id
-
-    @property
-    def name(self):
-        return self._name
+        return self.entity.get("unique_id")
 
     @property
     def state(self):
-        return self._state
+        return self.entity.get("state")
+
+    @property
+    def suggested_object_id(self):
+        return self.entity.get("suggested_object_id")
+
+    @property
+    def translation_key(self):
+        return self.entity.get("translation_key")
 
     @property
     def icon(self):
-        """Return the icon of the sensor."""
-        return self._icon
-
-    @property
-    def device_class(self):
-        return self._device_class
-
-    @property
-    def unit_of_measurement(self):
-        return self._unit_of_measurement
+        return self.entity.get("icon")
 
     @property
     def extra_state_attributes(self):
-        return {**self._attributes, "Managed By": self._app}
+        return self.entity.get("attributes") or {}
 
-    def export_data(self):
-        return {"state": self._state, "attributes": self._attributes}
+    @property
+    def entity_category(self):
+        return self.entity.get("entity_category")
 
-    async def receive_update(self, entity):
-        self.set_attributes(entity)
-        self.async_write_ha_state()
+    @property
+    def name(self):
+        return self.entity.get("name")
 
-    def set_attributes(self, entity):
-        self._id = entity.get("id")
-        self._name = entity.get("name")
-        self._icon = entity.get("icon", "mdi:satellite-uplink")
-        self._state = entity.get("state", "")
-        self._unit_of_measurement = entity.get("unit_of_measurement")
-        self._attributes = entity.get("attributes", {})
-        self._device_class = entity.get("device_class", None)
+    @property
+    def suggested_area_id(self):
+        return self.entity.get("area_id")
+
+    @property
+    def labels(self):
+        return self.entity.get("labels")
 
     @property
     def available(self):
-        return self.hass.data[DOMAIN]["health_status"].get(self._app, False)
+        return self.bridge.connected
 
-    def update_state(self, state):
-        self._state = state
-        self.async_write_ha_state()
+    # domain specific
+    @property
+    def state_class(self):
+        return self.entity.get("state_class")
 
-    def update_attribute(self, attribute, value):
-        self._attributes[attribute] = value
-        self.async_write_ha_state()
+    @property
+    def suggested_display_precision(self):
+        return self.entity.get("suggested_display_precision")
 
-    def update_all(self, state, attributes):
-        self._state = state
-        self._attributes = attributes
-        self.async_write_ha_state()
+    @property
+    def capability_attributes(self):
+        return self.entity.get("capability_attributes")
 
-    async def async_added_to_hass(self):
-        """When entity is added to Home Assistant."""
+    @property
+    def native_unit_of_measurement(self):
+        return self.entity.get("native_unit_of_measurement")
+
+    @property
+    def supported_features(self):
+        return self.entity.get("supported_features")
+
+    @property
+    def device_class(self):
+        return self.entity.get("device_class")
+
+    @property
+    def unit_of_measurement(self):
+        return self.entity.get("unit_of_measurement")
+
+    @property
+    def options(self):
+        return self.entity.get("options")
+
+    @property
+    def last_reset(self):
+        return self.entity.get("last_reset")
+
+    # helper methods
+    def _listen(self):
         self.async_on_remove(
             self.hass.bus.async_listen(
-                f"digital_alchemy_health_{self._app}", self._handle_health_update
+                self.bridge.event_name("update"),
+                self._handle_entity_update,
             )
         )
         self.async_on_remove(
-            self.hass.bus.async_listen("digital_alchemy_event", self._handle_event_sensor)
+            self.hass.bus.async_listen(
+                self.bridge.event_name("health"),
+                self._handle_availability_update,
+            )
         )
 
-    async def _handle_event_sensor(self, event):
-        """Handle individual sensor state or attribute updates."""
-        if event.data.get("id") == self._id:
-            data = event.data.get("data")
-            if "state" in data:
-                self.update_state(data["state"])
-            if "attributes" in data:
-                for attr, value in data["attributes"].items():
-                    self.update_attribute(attr, value)
+    @callback
+    def _handle_entity_update(self, event):
+        if event.data.get("unique_id") == self.entity.get("unique_id"):
+            self.entity = event.data.get("data")
+            self.async_write_ha_state()
 
     @callback
-    async def _handle_health_update(self, event):
+    async def _handle_availability_update(self, event):
         """Handle health status update."""
         self.async_schedule_update_ha_state(True)

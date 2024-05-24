@@ -3,6 +3,8 @@ from homeassistant.core import callback
 from .const import DOMAIN
 import logging
 from .platform import generic_setup
+from .bridge import SynapseBridge
+from .base_entity import SynapseBaseEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -13,17 +15,12 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     _LOGGER.debug("loaded")
     return True
 
-class SynapseSwitch(SwitchEntity):
-    def __init__(self, hass, app, entity):
-        """Initialize the switch."""
-        self.hass = hass
-        self._app = app
-        self.set_attributes(entity)
 
-    @property
-    def unique_id(self):
-        """Return a unique identifier for this switch."""
-        return self._id
+class SynapseSwitch(SynapseBaseEntity, SwitchEntity):
+    def __init__(self, hub: SynapseBridge, entity):
+        """Initialize the switch."""
+        super.__init__(self, hub, entity)
+
 
     @property
     def name(self):
@@ -42,7 +39,7 @@ class SynapseSwitch(SwitchEntity):
     @property
     def available(self):
         """Return if the switch is available."""
-        return self.hass.data[DOMAIN]["health_status"].get(self._app, False)
+        return self.bridge.connected
 
     async def receive_update(self, entity):
         self.set_attributes(entity)
@@ -68,17 +65,20 @@ class SynapseSwitch(SwitchEntity):
             self._state = new_state == "on"
             self.async_write_ha_state()
             self.hass.bus.async_fire(
-                "digital_alchemy_switch_update", {"data": {"switch": self._id, "state": new_state}}
+                "digital_alchemy/switch/update",
+                {"data": {"switch": self._id, "state": new_state}},
             )
 
     async def async_added_to_hass(self):
         """When entity is added to Home Assistant."""
         self.async_on_remove(
-            self.hass.bus.async_listen("digital_alchemy_event", self._handle_switch_update)
+            self.hass.bus.async_listen(
+                "digital_alchemy_event", self._handle_switch_update
+            )
         )
         self.async_on_remove(
             self.hass.bus.async_listen(
-                f"digital_alchemy_health_{self._app}", self._handle_health_update
+                f"digital_alchemy/health/{self._app}", self._handle_health_update
             )
         )
 

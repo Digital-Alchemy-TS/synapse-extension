@@ -1,101 +1,135 @@
+from .bridge import SynapseBridge
 from .const import DOMAIN
-from homeassistant.core import callback
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import callback, HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.binary_sensor import BinarySensorEntity
 import logging
-from .platform import generic_setup
-from .health_sensor import HealthCheckSensor
-
-_LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+class SynapseSensorDefinition:
+    attributes: object
+    capability_attributes: int
+    device_class: str
+    entity_category: str
+    icon: str
+    unique_id: str
+    name: str
+    state: str | int
+    state_class: str
+    native_unit_of_measurement: str
+    suggested_object_id: str
+    supported_features: int
+    translation_key: str
+    suggested_display_precision: int
+    last_reset: str
+    options: list[str]
+    unit_of_measurement: str
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
     """Setup the router platform."""
-
-    @callback
-    def handle_application_upgrade(event):
-        app = event.data.get("app")
-
-        if "health_sensor" not in hass.data[DOMAIN]:
-            hass.data[DOMAIN]["health_sensor"] = {}
-
-
-        # * First time seeing this app, create health check sensor
-        if hass.data[DOMAIN]["health_sensor"].get(app, None) == None:
-            incoming = HealthCheckSensor(hass, app)
-            hass.data[DOMAIN]["health_sensor"][app] = incoming
-            async_add_entities([incoming], True)
-
-    hass.bus.async_listen("digital_alchemy_application_state", handle_application_upgrade)
-    await generic_setup(hass, "binary_sensor", SynapseBinarySensor, async_add_entities)
-    _LOGGER.debug("loaded")
-    return True
+    bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
+    binary_sensors = bridge.config_entry.get("binary_sensor")
+    async_add_entities(SynapseBinarySensor(hass, bridge, entity) for entity in binary_sensors)
 
 
 class SynapseBinarySensor(BinarySensorEntity):
-    def __init__(self, hass, app, entity):
+    def __init__(
+        self, hass: HomeAssistant, hub: SynapseBridge, entity: SynapseSensorDefinition
+    ):
         self.hass = hass
-        self._app = app
-        self.set_attributes(entity)
+        self.bridge = hub
+        self.entity = entity
+        self.logger = logging.getLogger(__name__)
+        self._listen()
+
+    # common to all
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device registry information for this entity."""
+        return self.bridge.device
 
     @property
     def unique_id(self):
-        """Return a unique ID."""
-        return self._id
+        return self.entity.get("unique_id")
 
     @property
-    def name(self):
-        return self._name
+    def state(self):
+        return self.entity.get("state")
+
+    @property
+    def suggested_object_id(self):
+        return self.entity.get("suggested_object_id")
+
+    @property
+    def translation_key(self):
+        return self.entity.get("translation_key")
 
     @property
     def icon(self):
-        return self._icon
-
-    @property
-    def is_on(self):
-        return self._state
+        return self.entity.get("icon")
 
     @property
     def extra_state_attributes(self):
-        return {"Managed By": self._app}
+        return self.entity.get("attributes") or {}
+
+    @property
+    def entity_category(self):
+        return self.entity.get("entity_category")
+
+    @property
+    def name(self):
+        return self.entity.get("name")
+
+    @property
+    def suggested_area_id(self):
+        return self.entity.get("area_id")
+
+    @property
+    def labels(self):
+        return self.entity.get("labels")
 
     @property
     def available(self):
-        return self.hass.data[DOMAIN]["health_status"].get(self._app, False)
+        return self.bridge.connected
 
-    def export_data(self):
-        return {"state": self._state}
+    # domain specific
+    @property
+    def device_class(self):
+        return self.entity.get("device_class")
 
-    def set_attributes(self, entity):
-        self._id = entity.get("id")
-        self._name = entity.get("name")
-        self._icon = entity.get("icon", "mdi:toggle-switch-variant-off")
-        self._state = entity.get("state", "off") == "on"
+    @property
+    def is_on(self):
+        return self.entity.get("state") == "on"
 
-    async def receive_update(self, entity):
-        self.set_attributes(entity)
-        self.async_write_ha_state()
-
-    async def async_added_to_hass(self):
-        """When entity is added to Home Assistant."""
+    def _listen(self):
         self.async_on_remove(
             self.hass.bus.async_listen(
-                f"digital_alchemy_health_{self._app}", self._handle_health_update
+                self.bridge.event_name("update"),
+                self._handle_entity_update,
+            )
+        )
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                self.bridge.event_name("health"),
+                self._handle_availability_update,
             )
         )
 
-        self.async_on_remove(
-            self.hass.bus.async_listen("digital_alchemy_event", self.handle_binary_sensor_event)
-        )
+    @callback
+    def _handle_entity_update(self, event):
+        if event.data.get("unique_id") == self.entity.get("unique_id"):
+            self.entity = event.data.get("data")
+            self.async_write_ha_state()
 
     @callback
-    async def _handle_health_update(self, event):
+    async def _handle_availability_update(self, event):
         """Handle health status update."""
         self.async_schedule_update_ha_state(True)
-
-    async def handle_binary_sensor_event(self, event):
-        """Handle incoming binary sensor update events."""
-        if event.data.get("id") == self._id:
-            new_state = event.data.get("data", {}).get("state")
-            if new_state:
-                self._state = True if new_state == "on" else False
-                self.async_write_ha_state()

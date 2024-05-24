@@ -61,7 +61,7 @@ class SynapseButton(ButtonEntity):
         """When entity is added to Home Assistant."""
         self.async_on_remove(
             self.hass.bus.async_listen(
-                f"digital_alchemy_health_{self._app}", self._handle_health_update
+                f"digital_alchemy/health/{self._app}", self._handle_health_update
             )
         )
 
