@@ -4,9 +4,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.const import (
-    CONF_HOST,
-)
+from homeassistant.const import EntityCategory
+
 import aiohttp
 import logging
 
@@ -104,12 +103,13 @@ class SynapseBridge:
             self.logger.info(f"{self.config_entry.get("app")}:{domain} => {len(incoming_list)} entries")
 
             for incoming in incoming_list:
+                category = EntityCategory.config if incoming.get("entity_category", None) == "config" else EntityCategory.DIAGNOSTIC
                 entity_registry.async_get_or_create(
                     domain=domain,
                     platform="synapse",
                     unique_id=incoming.get("id"),
                     suggested_object_id=incoming.get("suggested_object_id", None),
-                    entity_category=incoming.get("entity_category", None),
+                    entity_category=category,
                     unit_of_measurement=incoming.get("unit_of_measurement"),
                     supported_features=incoming.get("supported_features"),
                     original_device_class=incoming.get("device_class"),

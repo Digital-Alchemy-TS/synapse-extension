@@ -3,6 +3,7 @@ from .const import DOMAIN
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import callback, HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -36,8 +37,8 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    sensors = bridge.config_entry.get("sensor")
-    async_add_entities(SynapseSensor(hass, bridge, entity) for entity in sensors)
+    entities = bridge.config_entry.get("sensor")
+    async_add_entities(SynapseSensor(hass, bridge, entity) for entity in entities)
 
 
 class SynapseSensor(SensorEntity):
@@ -82,7 +83,11 @@ class SynapseSensor(SensorEntity):
 
     @property
     def entity_category(self):
-        return self.entity.get("entity_category")
+        if self.entity.get("entity_category") == "config":
+            return EntityCategory.config
+        if self.entity.get("entity_category") == "diagnostic":
+            return EntityCategory.DIAGNOSTIC
+        return None
 
     @property
     def name(self):

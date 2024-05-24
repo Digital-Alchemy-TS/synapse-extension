@@ -1,9 +1,9 @@
 DOMAIN = "synapse"
 
 PLATFORMS: list[str] = [
-    # "binary_sensor",
-    # "button",
+    "binary_sensor",
+    "button",
     # "scene",
-    # "sensor",
+    "sensor",
     # "switch"
 ]

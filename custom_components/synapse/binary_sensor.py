@@ -3,30 +3,24 @@ from .const import DOMAIN
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback, HomeAssistant
+from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.binary_sensor import BinarySensorEntity
 import logging
 
 
-class SynapseSensorDefinition:
+class SynapseBinarySensorDefinition:
     attributes: object
-    capability_attributes: int
     device_class: str
     entity_category: str
     icon: str
     unique_id: str
     name: str
     state: str | int
-    state_class: str
-    native_unit_of_measurement: str
     suggested_object_id: str
     supported_features: int
     translation_key: str
-    suggested_display_precision: int
-    last_reset: str
-    options: list[str]
-    unit_of_measurement: str
 
 
 async def async_setup_entry(
@@ -36,13 +30,18 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    binary_sensors = bridge.config_entry.get("binary_sensor")
-    async_add_entities(SynapseBinarySensor(hass, bridge, entity) for entity in binary_sensors)
+    entities = bridge.config_entry.get("binary_sensor")
+    async_add_entities(
+        SynapseBinarySensor(hass, bridge, entity) for entity in entities
+    )
 
 
 class SynapseBinarySensor(BinarySensorEntity):
     def __init__(
-        self, hass: HomeAssistant, hub: SynapseBridge, entity: SynapseSensorDefinition
+        self,
+        hass: HomeAssistant,
+        hub: SynapseBridge,
+        entity: SynapseBinarySensorDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -82,7 +81,11 @@ class SynapseBinarySensor(BinarySensorEntity):
 
     @property
     def entity_category(self):
-        return self.entity.get("entity_category")
+        if self.entity.get("entity_category") == "config":
+            return EntityCategory.config
+        if self.entity.get("entity_category") == "diagnostic":
+            return EntityCategory.DIAGNOSTIC
+        return None
 
     @property
     def name(self):
