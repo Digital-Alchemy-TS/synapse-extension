@@ -1,99 +1,153 @@
-from homeassistant.components.switch import SwitchEntity
-from homeassistant.core import callback
-from .const import DOMAIN
-import logging
-from .platform import generic_setup
 from .bridge import SynapseBridge
-from .base_entity import SynapseBaseEntity
+from .const import DOMAIN
 
-_LOGGER = logging.getLogger(__name__)
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import callback, HomeAssistant
+from homeassistant.const import EntityCategory
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.components.switch import SwitchEntity
+import logging
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+class SynapseSwitchDefinition:
+    attributes: object
+    device_class: str
+    entity_category: str
+    icon: str
+    unique_id: str
+    name: str
+    state: str | int
+    suggested_object_id: str
+    supported_features: int
+    translation_key: str
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
     """Setup the router platform."""
-    await generic_setup(hass, "switch", SynapseSwitch, async_add_entities)
-    _LOGGER.debug("loaded")
-    return True
+    bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
+    entities = bridge.config_entry.get("switch")
+    async_add_entities(SynapseSwitch(hass, bridge, entity) for entity in entities)
 
 
-class SynapseSwitch(SynapseBaseEntity, SwitchEntity):
-    def __init__(self, hub: SynapseBridge, entity):
-        """Initialize the switch."""
-        super.__init__(self, hub, entity)
+class SynapseSwitch(SwitchEntity):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        hub: SynapseBridge,
+        entity: SynapseSwitchDefinition,
+    ):
+        self.hass = hass
+        self.bridge = hub
+        self.entity = entity
+        self.logger = logging.getLogger(__name__)
+        self._listen()
 
+    # common to all
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device registry information for this entity."""
+        return self.bridge.device
 
     @property
-    def name(self):
-        """Return the name of the switch."""
-        return self._name
+    def unique_id(self):
+        return self.entity.get("unique_id")
 
     @property
-    def is_on(self):
-        """Return True if the switch is on."""
-        return self._state
+    def suggested_object_id(self):
+        return self.entity.get("suggested_object_id")
+
+    @property
+    def translation_key(self):
+        return self.entity.get("translation_key")
+
+    @property
+    def icon(self):
+        return self.entity.get("icon")
 
     @property
     def extra_state_attributes(self):
-        return {"Managed By": self._app}
+        return self.entity.get("attributes") or {}
+
+    @property
+    def entity_category(self):
+        if self.entity.get("entity_category") == "config":
+            return EntityCategory.config
+        if self.entity.get("entity_category") == "diagnostic":
+            return EntityCategory.DIAGNOSTIC
+        return None
+
+    @property
+    def name(self):
+        return self.entity.get("name")
+
+    @property
+    def suggested_area_id(self):
+        return self.entity.get("area_id")
+
+    @property
+    def labels(self):
+        return self.entity.get("labels")
 
     @property
     def available(self):
-        """Return if the switch is available."""
         return self.bridge.connected
 
-    async def receive_update(self, entity):
-        self.set_attributes(entity)
-        self.async_write_ha_state()
+    # domain specific
+    @property
+    def is_on(self):
+        return self.entity.get("state") == "on"
 
-    def set_attributes(self, entity):
-        self._id = entity.get("id")
-        self._name = entity.get("name")
-        self._icon = entity.get("icon", "mdi:electric-switch")
-        self._state = entity.get("state", "off") == "on"
+    @property
+    def device_class(self):
+        return self.entity.get("device_class")
 
-    async def async_turn_on(self):
-        """Turn the switch on."""
-        await self._update_switch("on")
+    @callback
+    async def async_turn_on(self) -> None:
+        """Handle the switch press."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id")}
+        )
 
-    async def async_turn_off(self):
-        """Turn the switch off."""
-        await self._update_switch("off")
+    @callback
+    async def async_turn_off(self) -> None:
+        """Handle the switch press."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id")}
+        )
 
-    async def _update_switch(self, new_state):
-        """Send a state update to the external service."""
-        if self._state != (new_state == "on"):
-            self._state = new_state == "on"
+    @callback
+    async def async_turn_toggle(self) -> None:
+        """Handle the switch press."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id")}
+        )
+
+    def _listen(self):
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                self.bridge.event_name("update"),
+                self._handle_entity_update,
+            )
+        )
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                self.bridge.event_name("health"),
+                self._handle_availability_update,
+            )
+        )
+
+    @callback
+    def _handle_entity_update(self, event):
+        if event.data.get("unique_id") == self.entity.get("unique_id"):
+            self.entity = event.data.get("data")
             self.async_write_ha_state()
-            self.hass.bus.async_fire(
-                "digital_alchemy/switch/update",
-                {"data": {"switch": self._id, "state": new_state}},
-            )
-
-    async def async_added_to_hass(self):
-        """When entity is added to Home Assistant."""
-        self.async_on_remove(
-            self.hass.bus.async_listen(
-                "digital_alchemy_event", self._handle_switch_update
-            )
-        )
-        self.async_on_remove(
-            self.hass.bus.async_listen(
-                f"digital_alchemy/health/{self._app}", self._handle_health_update
-            )
-        )
 
     @callback
-    def _handle_switch_update(self, event):
-        """Handle incoming switch state updates."""
-        if event.data.get("id") == self._id:
-            new_state = event.data.get("data", {}).get("state")
-
-            # Prevent circular updates by checking if the state actually changed
-            if new_state != ("on" if self._state else "off"):
-                self._state = new_state == "on"
-                self.async_write_ha_state()
-
-    @callback
-    async def _handle_health_update(self, event):
+    async def _handle_availability_update(self, event):
         """Handle health status update."""
         self.async_schedule_update_ha_state(True)

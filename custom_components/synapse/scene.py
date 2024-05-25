@@ -1,73 +1,131 @@
-from homeassistant.components.scene import Scene as SceneEntity
-from homeassistant.core import callback
+from .bridge import SynapseBridge
 from .const import DOMAIN
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import callback, HomeAssistant
+from homeassistant.const import EntityCategory
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.components.scene import Scene as SceneEntity
 import logging
-from .platform import generic_setup
-
-_LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+class SynapseSceneDefinition:
+    attributes: object
+    device_class: str
+    entity_category: str
+    icon: str
+    unique_id: str
+    name: str
+    state: str | int
+    suggested_object_id: str
+    supported_features: int
+    translation_key: str
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
     """Setup the router platform."""
-    await generic_setup(hass, "scene", SynapseScene, async_add_entities)
-    _LOGGER.debug("loaded")
-    return True
+    bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
+    entities = bridge.config_entry.get("scene")
+    async_add_entities(SynapseScene(hass, bridge, entity) for entity in entities)
+
 
 class SynapseScene(SceneEntity):
-    def __init__(self, hass, app, entity):
-        """Initialize the scene."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        hub: SynapseBridge,
+        entity: SynapseSceneDefinition,
+    ):
         self.hass = hass
-        self._app = app
-        self.set_attributes(entity)
+        self.bridge = hub
+        self.entity = entity
+        self.logger = logging.getLogger(__name__)
+        self._listen()
+
+    # common to all
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device registry information for this entity."""
+        return self.bridge.device
 
     @property
     def unique_id(self):
-        """Return a unique identifier for this scene."""
-        return self._id
+        return self.entity.get("unique_id")
 
     @property
-    def name(self):
-        """Return the name of the scene."""
-        return self._name
+    def suggested_object_id(self):
+        return self.entity.get("suggested_object_id")
+
+    @property
+    def translation_key(self):
+        return self.entity.get("translation_key")
+
+    @property
+    def icon(self):
+        return self.entity.get("icon")
 
     @property
     def extra_state_attributes(self):
-        return {"Managed By": self._app}
+        return self.entity.get("attributes") or {}
+
+    @property
+    def entity_category(self):
+        if self.entity.get("entity_category") == "config":
+            return EntityCategory.config
+        if self.entity.get("entity_category") == "diagnostic":
+            return EntityCategory.DIAGNOSTIC
+        return None
+
+    @property
+    def name(self):
+        return self.entity.get("name")
+
+    @property
+    def suggested_area_id(self):
+        return self.entity.get("area_id")
+
+    @property
+    def labels(self):
+        return self.entity.get("labels")
 
     @property
     def available(self):
-        """Return if the scene is available."""
-        return self.hass.data[DOMAIN]["health_status"].get(self._app, False)
+        return self.bridge.connected
 
-    async def receive_update(self, entity):
-        self.set_attributes(entity)
-        self.async_write_ha_state()
+    @callback
+    async def async_activate(self) -> None:
+        """Handle the scene press."""
+        self.logger.info("activate")
+        self.hass.bus.async_fire(
+            self.bridge.event_name("activate"), {"unique_id": self.entity.get("unique_id")}
+        )
 
-    def set_attributes(self, entity):
-        self._id = entity.get("id")
-        self._name = entity.get("name")
-        self._icon = entity.get("icon", "mdi:lightbulb-night-outline")
-
-    async def async_activate(self):
-        """Activate the scene."""
-        _LOGGER.info(f"activate scene {self._name} (ID: {self._id})")
-        self.hass.bus.async_fire("digital_alchemy_activate", {"id": self._id})
-
-    def update_info(self, entity):
-        """Update the scene's information."""
-        self._name = entity.get("name", self._name)
-        self._icon = entity.get("icon", self._icon)
-        self.async_write_ha_state()
-
-    async def async_added_to_hass(self):
-        """When entity is added to Home Assistant."""
+    def _listen(self):
         self.async_on_remove(
             self.hass.bus.async_listen(
-                f"digital_alchemy/health/{self._app}", self._handle_health_update
+                self.bridge.event_name("update"),
+                self._handle_entity_update,
+            )
+        )
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                self.bridge.event_name("health"),
+                self._handle_availability_update,
             )
         )
 
     @callback
-    def _handle_health_update(self, event):
-        """React to health status updates."""
+    def _handle_entity_update(self, event):
+        if event.data.get("unique_id") == self.entity.get("unique_id"):
+            self.entity = event.data.get("data")
+            self.async_write_ha_state()
+
+    @callback
+    async def _handle_availability_update(self, event):
+        """Handle health status update."""
         self.async_schedule_update_ha_state(True)

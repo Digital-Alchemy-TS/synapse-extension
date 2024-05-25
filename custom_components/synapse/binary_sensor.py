@@ -60,10 +60,6 @@ class SynapseBinarySensor(BinarySensorEntity):
         return self.entity.get("unique_id")
 
     @property
-    def state(self):
-        return self.entity.get("state")
-
-    @property
     def suggested_object_id(self):
         return self.entity.get("suggested_object_id")
 
@@ -107,6 +103,10 @@ class SynapseBinarySensor(BinarySensorEntity):
     @property
     def device_class(self):
         return self.entity.get("device_class")
+
+    @property
+    def state(self):
+        return self.entity.get("state")
 
     @property
     def is_on(self):

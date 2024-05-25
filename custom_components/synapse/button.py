@@ -58,10 +58,6 @@ class SynapseButton(ButtonEntity):
         return self.entity.get("unique_id")
 
     @property
-    def state(self):
-        return self.entity.get("state")
-
-    @property
     def suggested_object_id(self):
         return self.entity.get("suggested_object_id")
 
@@ -105,10 +101,6 @@ class SynapseButton(ButtonEntity):
     @property
     def device_class(self):
         return self.entity.get("device_class")
-
-    @property
-    def is_on(self):
-        return self.entity.get("state") == "on"
 
     @callback
     async def async_press(self) -> None:

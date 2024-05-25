@@ -62,10 +62,6 @@ class SynapseSensor(SensorEntity):
         return self.entity.get("unique_id")
 
     @property
-    def state(self):
-        return self.entity.get("state")
-
-    @property
     def suggested_object_id(self):
         return self.entity.get("suggested_object_id")
 
@@ -106,6 +102,10 @@ class SynapseSensor(SensorEntity):
         return self.bridge.connected
 
     # domain specific
+    @property
+    def state(self):
+        return self.entity.get("state")
+
     @property
     def state_class(self):
         return self.entity.get("state_class")
