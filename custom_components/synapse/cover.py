@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.cover import CoverEntity
 import logging
 
 
-class SynapseSwitchDefinition:
+class SynapseCoverDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,16 +30,17 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("switch")
-    async_add_entities(SynapseSwitch(hass, bridge, entity) for entity in entities)
+    entities = bridge.config_entry.get("cover")
+    if entities is not None:
+      async_add_entities(SynapseCover(hass, bridge, entity) for entity in entities)
 
 
-class SynapseSwitch(SwitchEntity):
+class SynapseCover(CoverEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSwitchDefinition,
+        entity: SynapseCoverDefinition,
     ):
         self.hass = hass
         self.bridge = hub

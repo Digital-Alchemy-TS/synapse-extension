@@ -32,7 +32,8 @@ async def async_setup_entry(
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
     entities = bridge.config_entry.get("date")
-    async_add_entities(SynapseDate(hass, bridge, entity) for entity in entities)
+    if entities is not None:
+      async_add_entities(SynapseDate(hass, bridge, entity) for entity in entities)
 
 
 class SynapseDate(DateEntity):

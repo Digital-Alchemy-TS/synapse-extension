@@ -100,6 +100,8 @@ class SynapseBridge:
         # * Process entities
         for domain in PLATFORMS:
             incoming_list = self.config_entry.get(domain)
+            if incoming_list is None:
+                continue
             self.logger.info(f"{self.config_entry.get("app")}:{domain} => {len(incoming_list)} entries")
 
             for incoming in incoming_list:

@@ -30,11 +30,12 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("number")
-    async_add_entities(SynapseNumber(hass, bridge, entity) for entity in entities)
+    entities = bridge.config_entry.get("alarm_control_panel")
+    if entities is not None:
+      async_add_entities(SynapseAlarmControlPanel(hass, bridge, entity) for entity in entities)
 
 
-class SynapseNumber(NumberEntity):
+class SynapseAlarmControlPanel(NumberEntity):
     def __init__(
         self,
         hass: HomeAssistant,

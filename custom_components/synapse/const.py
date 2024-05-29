@@ -7,13 +7,13 @@ PLATFORMS: list[str] = [
     "scene",
     "sensor",
     "switch",
+    "select",
+    "text",
 ]
 
 
 # PLATFORMS: list[str] = [
 #     "alarm_control_panel",
-#     "binary_sensor",
-#     "button",
 #     "camera",
 #     "climate",
 #     "cover",
@@ -27,15 +27,8 @@ PLATFORMS: list[str] = [
 #     "lock",
 #     "media_player",
 #     "notify",
-#     "number",
-#     "number",
 #     "remote",
-#     "scene",
-#     "select",
-#     "sensor",
 #     "siren",
-#     "switch",
-#     "text",
 #     "time",
 #     "todo_list",
 #     "update",
