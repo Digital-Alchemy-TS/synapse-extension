@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.scene import Scene as SceneEntity
+from homeassistant.components.todolist import TodoListEntity
 import logging
 
 
-class SynapseSceneDefinition:
+class SynapseTodoListDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,16 +30,16 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("scene")
-    async_add_entities(SynapseScene(hass, bridge, entity) for entity in entities)
+    entities = bridge.config_entry.get("todolist")
+    async_add_entities(SynapseTodoList(hass, bridge, entity) for entity in entities)
 
 
-class SynapseScene(SceneEntity):
+class SynapseTodoList(TodoListEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSceneDefinition,
+        entity: SynapseTodoListDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -97,12 +97,36 @@ class SynapseScene(SceneEntity):
     def available(self):
         return self.bridge.connected
 
+    # domain specific
+    @property
+    def todo_items(self):
+        return self.entity.get("todo_items")
+
+    @property
+    def supported_features(self):
+        return self.entity.get("supported_features")
+
     @callback
-    async def async_activate(self) -> None:
-        """Handle the scene press."""
+    async def async_create_todo_item(self, item: str, **kwargs) -> None:
+        """Proxy the request to create a todo item."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("activate"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("create_todo_item"), {"item": item, **kwargs}
         )
+
+    @callback
+    async def async_delete_todo_item(self, item_id: str, **kwargs) -> None:
+        """Proxy the request to delete a todo item."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("delete_todo_item"), {"item_id": item_id, **kwargs}
+        )
+
+    @callback
+    async def async_move_todo_item(self, item_id: str, position: int, **kwargs) -> None:
+        """Proxy the request to move a todo item."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("move_todo_item"), {"item_id": item_id, "position": position, **kwargs}
+        )
+
 
     def _listen(self):
         self.async_on_remove(

@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.scene import Scene as SceneEntity
+from homeassistant.components.siren import SirenEntity
 import logging
 
 
-class SynapseSceneDefinition:
+class SynapseSirenDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,16 +30,16 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("scene")
-    async_add_entities(SynapseScene(hass, bridge, entity) for entity in entities)
+    entities = bridge.config_entry.get("siren")
+    async_add_entities(SynapseSiren(hass, bridge, entity) for entity in entities)
 
 
-class SynapseScene(SceneEntity):
+class SynapseSiren(SirenEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSceneDefinition,
+        entity: SynapseSirenDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -97,12 +97,33 @@ class SynapseScene(SceneEntity):
     def available(self):
         return self.bridge.connected
 
+    # domain specific
+    @property
+    def is_on(self):
+        return self.entity.get("is_on")
+
+    @property
+    def available_tones(self):
+        return self.entity.get("available_tones")
+
+    @property
+    def supported_features(self):
+        return self.entity.get("supported_features")
+
     @callback
-    async def async_activate(self) -> None:
-        """Handle the scene press."""
+    async def async_turn_on(self, **kwargs) -> None:
+        """Proxy the request to turn the entity on."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("activate"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
+
+    @callback
+    async def async_turn_off(self, **kwargs) -> None:
+        """Proxy the request to turn the entity off."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
 
     def _listen(self):
         self.async_on_remove(

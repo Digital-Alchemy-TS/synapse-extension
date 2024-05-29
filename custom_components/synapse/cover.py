@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.scene import Scene as SceneEntity
+from homeassistant.components.switch import SwitchEntity
 import logging
 
 
-class SynapseSceneDefinition:
+class SynapseSwitchDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,16 +30,16 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("scene")
-    async_add_entities(SynapseScene(hass, bridge, entity) for entity in entities)
+    entities = bridge.config_entry.get("switch")
+    async_add_entities(SynapseSwitch(hass, bridge, entity) for entity in entities)
 
 
-class SynapseScene(SceneEntity):
+class SynapseSwitch(SwitchEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSceneDefinition,
+        entity: SynapseSwitchDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -97,12 +97,83 @@ class SynapseScene(SceneEntity):
     def available(self):
         return self.bridge.connected
 
+    # domain specific
+    @property
+    def current_cover_position(self):
+        return self.entity.get("current_cover_position")
+
+    @property
+    def current_cover_tilt_position(self):
+        return self.entity.get("current_cover_tilt_position")
+
+    @property
+    def is_closed(self):
+        return self.entity.get("is_closed")
+
+    @property
+    def is_closing(self):
+        return self.entity.get("is_closing")
+
+    @property
+    def is_opening(self):
+        return self.entity.get("is_opening")
+
     @callback
-    async def async_activate(self) -> None:
-        """Handle the scene press."""
+    async def async_stop_cover_tilt(self, **kwargs) -> None:
+        """Proxy the request to stop cover tilt."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("activate"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("stop_cover_tilt"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
+
+    @callback
+    async def async_set_cover_tilt_position(self, tilt_position: int, **kwargs) -> None:
+        """Proxy the request to set cover tilt position."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("set_cover_tilt_position"), {"unique_id": self.entity.get("unique_id"),"tilt_position": tilt_position, **kwargs}
+        )
+
+    @callback
+    async def async_close_cover_tilt(self, **kwargs) -> None:
+        """Proxy the request to close cover tilt."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("close_cover_tilt"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_open_cover_tilt(self, **kwargs) -> None:
+        """Proxy the request to open cover tilt."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("open_cover_tilt"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_stop_cover(self, **kwargs) -> None:
+        """Proxy the request to stop cover."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("stop_cover"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_set_cover_position(self, position: int, **kwargs) -> None:
+        """Proxy the request to set cover position."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("set_cover_position"), {"unique_id": self.entity.get("unique_id"),"position": position, **kwargs}
+        )
+
+    @callback
+    async def async_close_cover(self, **kwargs) -> None:
+        """Proxy the request to close cover."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("close_cover"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_open_cover(self, **kwargs) -> None:
+        """Proxy the request to open cover."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("open_cover"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
 
     def _listen(self):
         self.async_on_remove(

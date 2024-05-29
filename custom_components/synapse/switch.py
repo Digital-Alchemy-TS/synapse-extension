@@ -107,24 +107,24 @@ class SynapseSwitch(SwitchEntity):
         return self.entity.get("device_class")
 
     @callback
-    async def async_turn_on(self) -> None:
+    async def async_turn_on(self, **kwargs) -> None:
         """Handle the switch press."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
 
     @callback
-    async def async_turn_off(self) -> None:
+    async def async_turn_off(self, **kwargs) -> None:
         """Handle the switch press."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
 
     @callback
-    async def async_turn_toggle(self) -> None:
+    async def async_turn_toggle(self, **kwargs) -> None:
         """Handle the switch press."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
 
     def _listen(self):

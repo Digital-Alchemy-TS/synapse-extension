@@ -105,12 +105,8 @@ class SynapseBinarySensor(BinarySensorEntity):
         return self.entity.get("device_class")
 
     @property
-    def state(self):
-        return self.entity.get("state")
-
-    @property
     def is_on(self):
-        return self.entity.get("state") == "on"
+        return self.entity.get("is_on")
 
     def _listen(self):
         self.async_on_remove(

@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.scene import Scene as SceneEntity
+from homeassistant.components.valve import ValveEntity
 import logging
 
 
-class SynapseSceneDefinition:
+class SynapseValveDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,16 +30,16 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("scene")
-    async_add_entities(SynapseScene(hass, bridge, entity) for entity in entities)
+    entities = bridge.config_entry.get("valve")
+    async_add_entities(SynapseValve(hass, bridge, entity) for entity in entities)
 
 
-class SynapseScene(SceneEntity):
+class SynapseValve(ValveEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSceneDefinition,
+        entity: SynapseValveDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -97,12 +97,63 @@ class SynapseScene(SceneEntity):
     def available(self):
         return self.bridge.connected
 
+    # domain specific
+    @property
+    def current_valve_position(self):
+        return self.entity.get("current_valve_position")
+
+    @property
+    def is_closed(self):
+        return self.entity.get("is_closed")
+
+    @property
+    def is_opening(self):
+        return self.entity.get("is_opening")
+
+    @property
+    def reports_position(self):
+        return self.entity.get("reports_position")
+
+    @property
+    def device_class(self):
+        return self.entity.get("device_class")
+
+    @property
+    def is_closing(self):
+        return self.entity.get("is_closing")
+
+    @property
+    def supported_features(self):
+        return self.entity.get("supported_features")
+
     @callback
-    async def async_activate(self) -> None:
-        """Handle the scene press."""
+    async def async_open_valve(self, **kwargs) -> None:
+        """Proxy the request to open the valve."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("activate"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("open_valve"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
+
+    @callback
+    async def async_close_valve(self, **kwargs) -> None:
+        """Proxy the request to close the valve."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("close_valve"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_set_valve_position(self, position: float, **kwargs) -> None:
+        """Proxy the request to set the valve position."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("set_valve_position"), {"position": position, **kwargs}
+        )
+
+    @callback
+    async def async_stop_valve(self, **kwargs) -> None:
+        """Proxy the request to stop the valve."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("stop_valve"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
 
     def _listen(self):
         self.async_on_remove(

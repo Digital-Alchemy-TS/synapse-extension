@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.scene import Scene as SceneEntity
+from homeassistant.components.remote import RemoteEntity
 import logging
 
 
-class SynapseSceneDefinition:
+class SynapseRemoteDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,16 +30,16 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("scene")
-    async_add_entities(SynapseScene(hass, bridge, entity) for entity in entities)
+    entities = bridge.config_entry.get("remote")
+    async_add_entities(SynapseRemote(hass, bridge, entity) for entity in entities)
 
 
-class SynapseScene(SceneEntity):
+class SynapseRemote(RemoteEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSceneDefinition,
+        entity: SynapseRemoteDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -97,11 +97,81 @@ class SynapseScene(SceneEntity):
     def available(self):
         return self.bridge.connected
 
+    # domain specific
+    @property
+    def current_activity(self):
+        return self.entity.get("current_activity")
+
+    @property
+    def activity_list(self):
+        return self.entity.get("activity_list")
+
+    @property
+    def supported_features(self):
+        return self.entity.get("supported_features")
+
     @callback
-    async def async_activate(self) -> None:
-        """Handle the scene press."""
+    async def async_turn_on(self, **kwargs) -> None:
+        """Proxy the request to turn the entity on."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("activate"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_turn_off(self, **kwargs) -> None:
+        """Proxy the request to turn the entity off."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_toggle(self, **kwargs) -> None:
+        """Proxy the request to toggle the entity."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_send_command(self, command: str, **kwargs) -> None:
+        """Proxy the request to send a command."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("send_command"), {"command": command, **kwargs}
+        )
+
+    @callback
+    async def async_learn_command(self, **kwargs) -> None:
+        """Proxy the request to learn a command."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("learn_command"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_delete_command(self, command: str, **kwargs) -> None:
+        """Proxy the request to delete a command."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("delete_command"), {"command": command, **kwargs}
+        )
+
+
+    @callback
+    async def async_send_command(self, command: str, **kwargs) -> None:
+        """Proxy the request to send a command."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("send_command"), {"command": command, **kwargs}
+        )
+
+    @callback
+    async def async_learn_command(self, **kwargs) -> None:
+        """Proxy the request to learn a command."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("learn_command"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_delete_command(self, command: str, **kwargs) -> None:
+        """Proxy the request to delete a command."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("delete_command"), {"command": command, **kwargs}
         )
 
     def _listen(self):

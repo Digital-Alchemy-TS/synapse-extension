@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.scene import Scene as SceneEntity
+from homeassistant.components.switch import SwitchEntity
 import logging
 
 
-class SynapseSceneDefinition:
+class SynapseSwitchDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,16 +30,16 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("scene")
-    async_add_entities(SynapseScene(hass, bridge, entity) for entity in entities)
+    entities = bridge.config_entry.get("switch")
+    async_add_entities(SynapseSwitch(hass, bridge, entity) for entity in entities)
 
 
-class SynapseScene(SceneEntity):
+class SynapseSwitch(SwitchEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSceneDefinition,
+        entity: SynapseSwitchDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -97,12 +97,14 @@ class SynapseScene(SceneEntity):
     def available(self):
         return self.bridge.connected
 
+    # domain specific
     @callback
-    async def async_activate(self) -> None:
-        """Handle the scene press."""
+    async def async_send_message(self, message: str, **kwargs) -> None:
+        """Proxy the request to send a message."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("activate"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("send_message"), {"message": message, **kwargs}
         )
+
 
     def _listen(self):
         self.async_on_remove(

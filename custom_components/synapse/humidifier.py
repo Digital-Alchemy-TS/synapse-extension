@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.scene import Scene as SceneEntity
+from homeassistant.components.humidifier import HumidifierEntity
 import logging
 
 
-class SynapseSceneDefinition:
+class SynapseHumidifierDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,16 +30,16 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("scene")
-    async_add_entities(SynapseScene(hass, bridge, entity) for entity in entities)
+    entities = bridge.config_entry.get("humidifier")
+    async_add_entities(SynapseHumidifier(hass, bridge, entity) for entity in entities)
 
 
-class SynapseScene(SceneEntity):
+class SynapseHumidifier(HumidifierEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSceneDefinition,
+        entity: SynapseHumidifierDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -97,11 +97,62 @@ class SynapseScene(SceneEntity):
     def available(self):
         return self.bridge.connected
 
+    # domain specific
+    @property
+    def action(self):
+        return self.entity.get("action")
+
+    @property
+    def available_modes(self):
+        return self.entity.get("available_modes")
+
+    @property
+    def current_humidity(self):
+        return self.entity.get("current_humidity")
+
+    @property
+    def device_class(self):
+        return self.entity.get("device_class")
+
+    @property
+    def is_on(self):
+        return self.entity.get("is_on")
+
+    @property
+    def max_humidity(self):
+        return self.entity.get("max_humidity")
+
+    @property
+    def min_humidity(self):
+        return self.entity.get("min_humidity")
+
+    @property
+    def mode(self):
+        return self.entity.get("mode")
+
+    @property
+    def target_humidity(self):
+        return self.entity.get("target_humidity")
+
     @callback
-    async def async_activate(self) -> None:
-        """Handle the scene press."""
+    async def async_set_humidity(self, humidity: float, **kwargs) -> None:
+        """Proxy the request to set humidity."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("activate"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("set_humidity"), {"unique_id": self.entity.get("unique_id"),"humidity": humidity, **kwargs}
+        )
+
+    @callback
+    async def async_turn_on(self, **kwargs) -> None:
+        """Proxy the request to turn the entity on."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_turn_off(self, **kwargs) -> None:
+        """Proxy the request to turn the entity off."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
 
     def _listen(self):

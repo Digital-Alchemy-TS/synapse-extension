@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.scene import Scene as SceneEntity
+from homeassistant.components.image import ImageEntity
 import logging
 
 
-class SynapseSceneDefinition:
+class SynapseImageDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,16 +30,16 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("scene")
-    async_add_entities(SynapseScene(hass, bridge, entity) for entity in entities)
+    entities = bridge.config_entry.get("image")
+    async_add_entities(SynapseImage(hass, bridge, entity) for entity in entities)
 
 
-class SynapseScene(SceneEntity):
+class SynapseImage(ImageEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSceneDefinition,
+        entity: SynapseImageDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -97,12 +97,18 @@ class SynapseScene(SceneEntity):
     def available(self):
         return self.bridge.connected
 
-    @callback
-    async def async_activate(self) -> None:
-        """Handle the scene press."""
-        self.hass.bus.async_fire(
-            self.bridge.event_name("activate"), {"unique_id": self.entity.get("unique_id")}
-        )
+    # domain specific
+    @property
+    def content_type(self):
+        return self.entity.get("content_type")
+
+    @property
+    def image_last_updated(self):
+        return self.entity.get("image_last_updated")
+
+    @property
+    def image_url(self):
+        return self.entity.get("image_url")
 
     def _listen(self):
         self.async_on_remove(

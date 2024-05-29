@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.scene import Scene as SceneEntity
+from homeassistant.components.datetime import DateTimeEntity
 import logging
 
 
-class SynapseSceneDefinition:
+class SynapseDateTimeDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,16 +30,16 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("scene")
-    async_add_entities(SynapseScene(hass, bridge, entity) for entity in entities)
+    entities = bridge.config_entry.get("datetime")
+    async_add_entities(SynapseDateTime(hass, bridge, entity) for entity in entities)
 
 
-class SynapseScene(SceneEntity):
+class SynapseDateTime(DateTimeEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSceneDefinition,
+        entity: SynapseDateTimeDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -97,34 +97,44 @@ class SynapseScene(SceneEntity):
     def available(self):
         return self.bridge.connected
 
+    # domain specific
     @callback
-    async def async_activate(self) -> None:
-        """Handle the scene press."""
+    async def async_set_value(self, value: Any, **kwargs) -> None:
+        """Proxy the request to set the value."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("activate"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("set_value"), {"value": value, **kwargs}
+        )
+
+
+    @callback
+    async def async_turn_toggle(self) -> None:
+        """Handle the datetime press."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id")}
         )
 
     def _listen(self):
         self.async_on_remove(
             self.hass.bus.async_listen(
-                self.bridge.event_name("update"),
-                self._handle_entity_update,
+                self.bridge.event_name("updatetime"),
+                self._handle_entity_updatetime,
             )
         )
         self.async_on_remove(
             self.hass.bus.async_listen(
                 self.bridge.event_name("health"),
-                self._handle_availability_update,
+                self._handle_availability_updatetime,
             )
         )
 
     @callback
-    def _handle_entity_update(self, event):
+    def _handle_entity_updatetime(self, event):
         if event.data.get("unique_id") == self.entity.get("unique_id"):
             self.entity = event.data.get("data")
             self.async_write_ha_state()
 
     @callback
-    async def _handle_availability_update(self, event):
-        """Handle health status update."""
-        self.async_schedule_update_ha_state(True)
+    async def _handle_availability_updatetime(self, event):
+        """Handle health status updatetime."""
+        self.async_schedule_updatetime_ha_state(True)
+ # type: ignore

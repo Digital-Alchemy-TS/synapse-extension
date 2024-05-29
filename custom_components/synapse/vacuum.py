@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.scene import Scene as SceneEntity
+from homeassistant.components.vacuum import VacuumEntity
 import logging
 
 
-class SynapseSceneDefinition:
+class SynapseVacuumDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,16 +30,16 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("scene")
-    async_add_entities(SynapseScene(hass, bridge, entity) for entity in entities)
+    entities = bridge.config_entry.get("vacuum")
+    async_add_entities(SynapseVacuum(hass, bridge, entity) for entity in entities)
 
 
-class SynapseScene(SceneEntity):
+class SynapseVacuum(VacuumEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSceneDefinition,
+        entity: SynapseVacuumDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -97,12 +97,79 @@ class SynapseScene(SceneEntity):
     def available(self):
         return self.bridge.connected
 
+    # domain specific
+    @property
+    def battery_level(self):
+        return self.entity.get("battery_level")
+
+    @property
+    def fan_speed(self):
+        return self.entity.get("fan_speed")
+
+    @property
+    def fan_speed_list(self):
+        return self.entity.get("fan_speed_list")
+
+    @property
+    def supported_features(self):
+        return self.entity.get("supported_features")
+
     @callback
-    async def async_activate(self) -> None:
-        """Handle the scene press."""
+    async def async_clean_spot(self, **kwargs) -> None:
+        """Proxy the request to clean a spot."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("activate"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("clean_spot"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
+
+    @callback
+    async def async_locate(self, **kwargs) -> None:
+        """Proxy the request to locate."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("locate"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_pause(self, **kwargs) -> None:
+        """Proxy the request to pause."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("pause"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_return_to_base(self, **kwargs) -> None:
+        """Proxy the request to return to base."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("return_to_base"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_send_command(self, command: str, **kwargs) -> None:
+        """Proxy the request to send a command."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("send_command"), {"command": command, **kwargs}
+        )
+
+    @callback
+    async def async_set_fan_speed(self, fan_speed: str, **kwargs) -> None:
+        """Proxy the request to set fan speed."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("set_fan_speed"), {"fan_speed": fan_speed, **kwargs}
+        )
+
+    @callback
+    async def async_start(self, **kwargs) -> None:
+        """Proxy the request to start."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("start"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
+    @callback
+    async def async_stop(self, **kwargs) -> None:
+        """Proxy the request to stop."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("stop"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+        )
+
 
     def _listen(self):
         self.async_on_remove(
