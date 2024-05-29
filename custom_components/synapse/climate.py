@@ -190,65 +190,89 @@ class SynapseClimate(ClimateEntity):
     async def async_set_hvac_mode(self, hvac_mode: str, **kwargs) -> None:
         """Proxy the request to set HVAC mode."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_hvac_mode"), {"unique_id": self.entity.get("unique_id"),"hvac_mode": hvac_mode, **kwargs}
+            self.bridge.event_name("set_hvac_mode"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "hvac_mode": hvac_mode,
+                **kwargs,
+            },
         )
 
     @callback
     async def async_turn_on(self, **kwargs) -> None:
         """Proxy the request to turn the entity on."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_on"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_turn_off(self, **kwargs) -> None:
         """Proxy the request to turn the entity off."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_off"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_toggle(self, **kwargs) -> None:
         """Proxy the request to toggle the entity."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("toggle"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_set_preset_mode(self, preset_mode: str, **kwargs) -> None:
         """Proxy the request to set preset mode."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_preset_mode"), {"unique_id": self.entity.get("unique_id"),"preset_mode": preset_mode, **kwargs}
+            self.bridge.event_name("set_preset_mode"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "preset_mode": preset_mode,
+                **kwargs,
+            },
         )
 
     @callback
     async def async_set_fan_mode(self, fan_mode: str, **kwargs) -> None:
         """Proxy the request to set fan mode."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_fan_mode"), {"unique_id": self.entity.get("unique_id"),"fan_mode": fan_mode, **kwargs}
+            self.bridge.event_name("set_fan_mode"),
+            {"unique_id": self.entity.get("unique_id"), "fan_mode": fan_mode, **kwargs},
         )
 
     @callback
     async def async_set_humidity(self, humidity: float, **kwargs) -> None:
         """Proxy the request to set humidity."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_humidity"), {"unique_id": self.entity.get("unique_id"),"humidity": humidity, **kwargs}
+            self.bridge.event_name("set_humidity"),
+            {"unique_id": self.entity.get("unique_id"), "humidity": humidity, **kwargs},
         )
 
     @callback
     async def async_set_swing_mode(self, swing_mode: str, **kwargs) -> None:
         """Proxy the request to set swing mode."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_swing_mode"), {"unique_id": self.entity.get("unique_id"),"swing_mode": swing_mode, **kwargs}
+            self.bridge.event_name("set_swing_mode"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "swing_mode": swing_mode,
+                **kwargs,
+            },
         )
 
     @callback
     async def async_set_temperature(self, temperature: float, **kwargs) -> None:
         """Proxy the request to set temperature."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_temperature"), {"unique_id": self.entity.get("unique_id"),"temperature": temperature, **kwargs}
+            self.bridge.event_name("set_temperature"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "temperature": temperature,
+                **kwargs,
+            },
         )
-
 
     def _listen(self):
         self.async_on_remove(

@@ -138,21 +138,24 @@ class SynapseHumidifier(HumidifierEntity):
     async def async_set_humidity(self, humidity: float, **kwargs) -> None:
         """Proxy the request to set humidity."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_humidity"), {"unique_id": self.entity.get("unique_id"),"humidity": humidity, **kwargs}
+            self.bridge.event_name("set_humidity"),
+            {"unique_id": self.entity.get("unique_id"), "humidity": humidity, **kwargs},
         )
 
     @callback
     async def async_turn_on(self, **kwargs) -> None:
         """Proxy the request to turn the entity on."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_on"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_turn_off(self, **kwargs) -> None:
         """Proxy the request to turn the entity off."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_off"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     def _listen(self):

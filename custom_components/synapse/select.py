@@ -110,7 +110,8 @@ class SynapseSelect(SelectEntity):
     async def async_select_option(self, option: str, **kwargs) -> None:
         """Proxy the request to select an option."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("select_option"), {"option": option, **kwargs}
+            self.bridge.event_name("select_option"),
+            {"unique_id": self.entity.get("unique_id"), "option": option, **kwargs},
         )
 
     def _listen(self):
@@ -137,4 +138,4 @@ class SynapseSelect(SelectEntity):
     async def _handle_availability_update(self, event):
         """Handle health status update."""
         self.async_schedule_update_ha_state(True)
- # type: ignore
+# type: ignore

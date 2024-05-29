@@ -118,58 +118,69 @@ class SynapseVacuum(VacuumEntity):
     async def async_clean_spot(self, **kwargs) -> None:
         """Proxy the request to clean a spot."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("clean_spot"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("clean_spot"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_locate(self, **kwargs) -> None:
         """Proxy the request to locate."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("locate"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("locate"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_pause(self, **kwargs) -> None:
         """Proxy the request to pause."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("pause"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("pause"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_return_to_base(self, **kwargs) -> None:
         """Proxy the request to return to base."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("return_to_base"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("return_to_base"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_send_command(self, command: str, **kwargs) -> None:
         """Proxy the request to send a command."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("send_command"), {"command": command, **kwargs}
+            self.bridge.event_name("send_command"),
+            {"unique_id": self.entity.get("unique_id"), "command": command, **kwargs},
         )
 
     @callback
     async def async_set_fan_speed(self, fan_speed: str, **kwargs) -> None:
         """Proxy the request to set fan speed."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_fan_speed"), {"fan_speed": fan_speed, **kwargs}
+            self.bridge.event_name("set_fan_speed"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "fan_speed": fan_speed,
+                **kwargs,
+            },
         )
 
     @callback
     async def async_start(self, **kwargs) -> None:
         """Proxy the request to start."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("start"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("start"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_stop(self, **kwargs) -> None:
         """Proxy the request to stop."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("stop"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("stop"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
-
 
     def _listen(self):
         self.async_on_remove(

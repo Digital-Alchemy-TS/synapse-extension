@@ -106,7 +106,8 @@ class SynapseButton(ButtonEntity):
     async def async_press(self, **kwargs) -> None:
         """Handle the button press."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("press"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("press"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     def _listen(self):

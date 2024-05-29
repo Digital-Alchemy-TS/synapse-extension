@@ -102,9 +102,9 @@ class SynapseSwitch(SwitchEntity):
     async def async_send_message(self, message: str, **kwargs) -> None:
         """Proxy the request to send a message."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("send_message"), {"message": message, **kwargs}
+            self.bridge.event_name("send_message"),
+            {"unique_id": self.entity.get("unique_id"), "message": message, **kwargs},
         )
-
 
     def _listen(self):
         self.async_on_remove(

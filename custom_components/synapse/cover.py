@@ -122,58 +122,69 @@ class SynapseSwitch(SwitchEntity):
     async def async_stop_cover_tilt(self, **kwargs) -> None:
         """Proxy the request to stop cover tilt."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("stop_cover_tilt"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("stop_cover_tilt"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_set_cover_tilt_position(self, tilt_position: int, **kwargs) -> None:
         """Proxy the request to set cover tilt position."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_cover_tilt_position"), {"unique_id": self.entity.get("unique_id"),"tilt_position": tilt_position, **kwargs}
+            self.bridge.event_name("set_cover_tilt_position"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "tilt_position": tilt_position,
+                **kwargs,
+            },
         )
 
     @callback
     async def async_close_cover_tilt(self, **kwargs) -> None:
         """Proxy the request to close cover tilt."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("close_cover_tilt"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("close_cover_tilt"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_open_cover_tilt(self, **kwargs) -> None:
         """Proxy the request to open cover tilt."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("open_cover_tilt"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("open_cover_tilt"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_stop_cover(self, **kwargs) -> None:
         """Proxy the request to stop cover."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("stop_cover"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("stop_cover"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_set_cover_position(self, position: int, **kwargs) -> None:
         """Proxy the request to set cover position."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_cover_position"), {"unique_id": self.entity.get("unique_id"),"position": position, **kwargs}
+            self.bridge.event_name("set_cover_position"),
+            {"unique_id": self.entity.get("unique_id"), "position": position, **kwargs},
         )
 
     @callback
     async def async_close_cover(self, **kwargs) -> None:
         """Proxy the request to close cover."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("close_cover"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("close_cover"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_open_cover(self, **kwargs) -> None:
         """Proxy the request to open cover."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("open_cover"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("open_cover"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
-
 
     def _listen(self):
         self.async_on_remove(

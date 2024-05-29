@@ -130,30 +130,33 @@ class SynapseValve(ValveEntity):
     async def async_open_valve(self, **kwargs) -> None:
         """Proxy the request to open the valve."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("open_valve"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("open_valve"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_close_valve(self, **kwargs) -> None:
         """Proxy the request to close the valve."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("close_valve"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("close_valve"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_set_valve_position(self, position: float, **kwargs) -> None:
         """Proxy the request to set the valve position."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_valve_position"), {"position": position, **kwargs}
+            self.bridge.event_name("set_valve_position"),
+            {"unique_id": self.entity.get("unique_id"), "position": position, **kwargs},
         )
 
     @callback
     async def async_stop_valve(self, **kwargs) -> None:
         """Proxy the request to stop the valve."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("stop_valve"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("stop_valve"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
-
 
     def _listen(self):
         self.async_on_remove(

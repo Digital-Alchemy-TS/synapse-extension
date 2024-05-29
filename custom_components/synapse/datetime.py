@@ -5,6 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
+from datetime import datetime
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.datetime import DateTimeEntity
 import logging
@@ -99,42 +100,37 @@ class SynapseDateTime(DateTimeEntity):
 
     # domain specific
     @callback
-    async def async_set_value(self, value: Any, **kwargs) -> None:
+    async def async_set_value(self, value: datetime, **kwargs) -> None:
         """Proxy the request to set the value."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_value"), {"value": value, **kwargs}
-        )
-
-
-    @callback
-    async def async_turn_toggle(self) -> None:
-        """Handle the datetime press."""
-        self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("set_value"),
+            {"unique_id": self.entity.get("unique_id"), "value": value, **kwargs},
         )
 
     def _listen(self):
         self.async_on_remove(
             self.hass.bus.async_listen(
-                self.bridge.event_name("updatetime"),
-                self._handle_entity_updatetime,
+                self.bridge.event_name("update"),
+                self._handle_entity_update,
             )
         )
         self.async_on_remove(
             self.hass.bus.async_listen(
                 self.bridge.event_name("health"),
-                self._handle_availability_updatetime,
+                self._handle_availability_update,
             )
         )
 
     @callback
-    def _handle_entity_updatetime(self, event):
+    def _handle_entity_update(self, event):
         if event.data.get("unique_id") == self.entity.get("unique_id"):
             self.entity = event.data.get("data")
             self.async_write_ha_state()
 
     @callback
-    async def _handle_availability_updatetime(self, event):
-        """Handle health status updatetime."""
-        self.async_schedule_updatetime_ha_state(True)
- # type: ignore
+    async def _handle_availability_update(self, event):
+        """Handle health status update."""
+        self.async_schedule_update_ha_state(True)
+
+
+# type: ignore

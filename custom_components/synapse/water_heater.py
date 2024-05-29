@@ -146,44 +146,57 @@ class SynapseWaterHeater(WaterHeaterEntity):
     async def async_set_temperature(self, temperature: float, **kwargs) -> None:
         """Proxy the request to set the temperature."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_temperature"), {"temperature": temperature, **kwargs}
+            self.bridge.event_name("set_temperature"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "temperature": temperature,
+                **kwargs,
+            },
         )
 
     @callback
     async def async_set_operation_mode(self, operation_mode: str, **kwargs) -> None:
         """Proxy the request to set the operation mode."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_operation_mode"), {"operation_mode": operation_mode, **kwargs}
+            self.bridge.event_name("set_operation_mode"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "operation_mode": operation_mode,
+                **kwargs,
+            },
         )
 
     @callback
     async def async_turn_away_mode_on(self, **kwargs) -> None:
         """Proxy the request to turn away mode on."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_away_mode_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_away_mode_on"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_turn_away_mode_off(self, **kwargs) -> None:
         """Proxy the request to turn away mode off."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_away_mode_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_away_mode_off"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_turn_on(self, **kwargs) -> None:
         """Proxy the request to turn the entity on."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_on"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_turn_off(self, **kwargs) -> None:
         """Proxy the request to turn the entity off."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_off"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
-
 
     def _listen(self):
         self.async_on_remove(

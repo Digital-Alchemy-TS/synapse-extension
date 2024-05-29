@@ -114,64 +114,72 @@ class SynapseRemote(RemoteEntity):
     async def async_turn_on(self, **kwargs) -> None:
         """Proxy the request to turn the entity on."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_on"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_turn_off(self, **kwargs) -> None:
         """Proxy the request to turn the entity off."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_off"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_toggle(self, **kwargs) -> None:
         """Proxy the request to toggle the entity."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("toggle"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_send_command(self, command: str, **kwargs) -> None:
         """Proxy the request to send a command."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("send_command"), {"command": command, **kwargs}
+            self.bridge.event_name("send_command"),
+            {"unique_id": self.entity.get("unique_id"), "command": command, **kwargs},
         )
 
     @callback
     async def async_learn_command(self, **kwargs) -> None:
         """Proxy the request to learn a command."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("learn_command"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("learn_command"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_delete_command(self, command: str, **kwargs) -> None:
         """Proxy the request to delete a command."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("delete_command"), {"command": command, **kwargs}
+            self.bridge.event_name("delete_command"),
+            {"unique_id": self.entity.get("unique_id"), "command": command, **kwargs},
         )
-
 
     @callback
     async def async_send_command(self, command: str, **kwargs) -> None:
         """Proxy the request to send a command."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("send_command"), {"command": command, **kwargs}
+            self.bridge.event_name("send_command"),
+            {"unique_id": self.entity.get("unique_id"), "command": command, **kwargs},
         )
 
     @callback
     async def async_learn_command(self, **kwargs) -> None:
         """Proxy the request to learn a command."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("learn_command"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("learn_command"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_delete_command(self, command: str, **kwargs) -> None:
         """Proxy the request to delete a command."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("delete_command"), {"command": command, **kwargs}
+            self.bridge.event_name("delete_command"),
+            {"unique_id": self.entity.get("unique_id"), "command": command, **kwargs},
         )
 
     def _listen(self):

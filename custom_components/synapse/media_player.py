@@ -227,26 +227,39 @@ class SynapseMediaPlayer(MediaPlayerEntity):
         return self.entity.get("volume_step")
 
     @callback
-    async def async_play_media(self, media_content_type: str, media_content_id: str, **kwargs) -> None:
+    async def async_play_media(
+        self, media_content_type: str, media_content_id: str, **kwargs
+    ) -> None:
         """Proxy the request to play media."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("play_media"), {"media_content_type": media_content_type, "media_content_id": media_content_id, **kwargs}
+            self.bridge.event_name("play_media"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "media_content_type": media_content_type,
+                "media_content_id": media_content_id,
+                **kwargs,
+            },
         )
 
     @callback
     async def async_select_sound_mode(self, sound_mode: str, **kwargs) -> None:
         """Proxy the request to select a sound mode."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("select_sound_mode"), {"sound_mode": sound_mode, **kwargs}
+            self.bridge.event_name("select_sound_mode"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "sound_mode": sound_mode,
+                **kwargs,
+            },
         )
 
     @callback
     async def async_select_source(self, source: str, **kwargs) -> None:
         """Proxy the request to select a source."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("select_source"), {"source": source, **kwargs}
+            self.bridge.event_name("select_source"),
+            {"unique_id": self.entity.get("unique_id"), "source": source, **kwargs},
         )
-
 
     def _listen(self):
         self.async_on_remove(

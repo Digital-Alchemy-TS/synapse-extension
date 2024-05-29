@@ -138,30 +138,33 @@ class SynapseCamera(CameraEntity):
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the entity on."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_on"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the entity off."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_off"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_enable_motion_detection(self, **kwargs) -> None:
         """Enable motion detection."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("enable_motion_detection"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("enable_motion_detection"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_disable_motion_detection(self, **kwargs) -> None:
         """Disable motion detection."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("disable_motion_detection"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("disable_motion_detection"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
-
 
     def _listen(self):
         self.async_on_remove(

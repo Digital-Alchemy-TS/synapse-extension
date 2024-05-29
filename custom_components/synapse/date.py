@@ -3,6 +3,7 @@ from .const import DOMAIN
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback, HomeAssistant
+from datetime import date
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -99,18 +100,11 @@ class SynapseDate(DateEntity):
 
     # domain specific
     @callback
-    async def async_set_value(self, value: Any, **kwargs) -> None:
+    async def async_set_value(self, value: date, **kwargs) -> None:
         """Proxy the request to set the value."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_value"), {"value": value, **kwargs}
-        )
-
-
-    @callback
-    async def async_turn_toggle(self) -> None:
-        """Handle the date press."""
-        self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id")}
+            self.bridge.event_name("set_value"),
+            {"unique_id": self.entity.get("unique_id"), "value": value, **kwargs},
         )
 
     def _listen(self):
@@ -137,4 +131,6 @@ class SynapseDate(DateEntity):
     async def _handle_availability_update(self, event):
         """Handle health status update."""
         self.async_schedule_update_ha_state(True)
- # type: ignore
+
+
+# type: ignore

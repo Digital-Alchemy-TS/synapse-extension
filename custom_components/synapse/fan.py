@@ -130,51 +130,73 @@ class SynapseFan(FanEntity):
     async def async_set_direction(self, direction: str, **kwargs) -> None:
         """Proxy the request to set direction."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_direction"), {"unique_id": self.entity.get("unique_id"),"direction": direction, **kwargs}
+            self.bridge.event_name("set_direction"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "direction": direction,
+                **kwargs,
+            },
         )
 
     @callback
     async def async_set_preset_mode(self, preset_mode: str, **kwargs) -> None:
         """Proxy the request to set preset mode."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_preset_mode"), {"unique_id": self.entity.get("unique_id"),"preset_mode": preset_mode, **kwargs}
+            self.bridge.event_name("set_preset_mode"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "preset_mode": preset_mode,
+                **kwargs,
+            },
         )
 
     @callback
     async def async_set_percentage(self, percentage: int, **kwargs) -> None:
         """Proxy the request to set percentage."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("set_percentage"), {"unique_id": self.entity.get("unique_id"),"percentage": percentage, **kwargs}
+            self.bridge.event_name("set_percentage"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "percentage": percentage,
+                **kwargs,
+            },
         )
 
     @callback
     async def async_turn_on(self, **kwargs) -> None:
         """Proxy the request to turn the entity on."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_on"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_turn_off(self, **kwargs) -> None:
         """Proxy the request to turn the entity off."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("turn_off"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_toggle(self, **kwargs) -> None:
         """Proxy the request to toggle the entity."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("toggle"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
     async def async_oscillate(self, oscillating: bool, **kwargs) -> None:
         """Proxy the request to set oscillating."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("oscillate"), {"unique_id": self.entity.get("unique_id"),"oscillating": oscillating, **kwargs}
+            self.bridge.event_name("oscillate"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "oscillating": oscillating,
+                **kwargs,
+            },
         )
-
 
     def _listen(self):
         self.async_on_remove(

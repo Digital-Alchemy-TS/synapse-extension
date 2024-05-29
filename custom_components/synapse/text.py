@@ -111,19 +111,12 @@ class SynapseText(TextEntity):
         return self.entity.get("supported_features")
 
     @callback
-    async def async_turn_on(self, **kwargs) -> None:
-        """Proxy the request to turn the entity on."""
+    async def async_set_value(self, value: str, **kwargs) -> None:
+        """Proxy the request to set the value."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("set_value"),
+            {"unique_id": self.entity.get("unique_id"), "value": value, **kwargs},
         )
-
-    @callback
-    async def async_turn_off(self, **kwargs) -> None:
-        """Proxy the request to turn the entity off."""
-        self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
-        )
-
 
     def _listen(self):
         self.async_on_remove(
