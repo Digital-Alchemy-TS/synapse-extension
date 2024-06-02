@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.lock import LockEntity
 import logging
 
 
-class SynapseSwitchDefinition:
+class SynapseLockDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,17 +30,17 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("switch")
+    entities = bridge.config_entry.get("lock")
     if entities is not None:
-      async_add_entities(SynapseSwitch(hass, bridge, entity) for entity in entities)
+      async_add_entities(SynapseLock(hass, bridge, entity) for entity in entities)
 
 
-class SynapseSwitch(SwitchEntity):
+class SynapseLock(LockEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSwitchDefinition,
+        entity: SynapseLockDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -100,33 +100,62 @@ class SynapseSwitch(SwitchEntity):
 
     # domain specific
     @property
-    def is_on(self):
-        return self.entity.get("is_on")
+    def changed_by(self):
+        return self.entity.get("changed_by")
 
     @property
-    def device_class(self):
-        return self.entity.get("device_class")
+    def code_format(self):
+        return self.entity.get("code_format")
+
+    @property
+    def is_locked(self):
+        return self.entity.get("is_locked")
+
+    @property
+    def is_locking(self):
+        return self.entity.get("is_locking")
+
+    @property
+    def is_unlocking(self):
+        return self.entity.get("is_unlocking")
+
+    @property
+    def is_jammed(self):
+        return self.entity.get("is_jammed")
+
+    @property
+    def is_opening(self):
+        return self.entity.get("is_opening")
+
+    @property
+    def is_open(self):
+        return self.entity.get("is_open")
+
+    @property
+    def supported_features(self):
+        return self.entity.get("supported_features")
 
     @callback
-    async def async_turn_on(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_lock(self, **kwargs) -> None:
+        """Proxy the request to lock."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("lock"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
 
     @callback
-    async def async_turn_off(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_unlock(self, **kwargs) -> None:
+        """Proxy the request to unlock."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("unlock"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
 
     @callback
-    async def async_turn_toggle(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_open(self, **kwargs) -> None:
+        """Proxy the request to open."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("open"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
+
 
     def _listen(self):
         self.async_on_remove(

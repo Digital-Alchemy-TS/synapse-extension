@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.siren import SirenEntity
 import logging
 
 
-class SynapseSwitchDefinition:
+class SynapseSirenDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,17 +30,17 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("switch")
+    entities = bridge.config_entry.get("siren")
     if entities is not None:
-      async_add_entities(SynapseSwitch(hass, bridge, entity) for entity in entities)
+      async_add_entities(SynapseSiren(hass, bridge, entity) for entity in entities)
 
 
-class SynapseSwitch(SwitchEntity):
+class SynapseSiren(SirenEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSwitchDefinition,
+        entity: SynapseSirenDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -104,29 +104,27 @@ class SynapseSwitch(SwitchEntity):
         return self.entity.get("is_on")
 
     @property
-    def device_class(self):
-        return self.entity.get("device_class")
+    def available_tones(self):
+        return self.entity.get("available_tones")
+
+    @property
+    def supported_features(self):
+        return self.entity.get("supported_features")
 
     @callback
     async def async_turn_on(self, **kwargs) -> None:
-        """Handle the switch press."""
+        """Proxy the request to turn the entity on."""
         self.hass.bus.async_fire(
             self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
 
     @callback
     async def async_turn_off(self, **kwargs) -> None:
-        """Handle the switch press."""
+        """Proxy the request to turn the entity off."""
         self.hass.bus.async_fire(
             self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
 
-    @callback
-    async def async_turn_toggle(self, **kwargs) -> None:
-        """Handle the switch press."""
-        self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}
-        )
 
     def _listen(self):
         self.async_on_remove(

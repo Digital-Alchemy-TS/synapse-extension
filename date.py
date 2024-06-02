@@ -3,14 +3,15 @@ from .const import DOMAIN
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback, HomeAssistant
+from datetime import date
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.date import DateEntity
 import logging
 
 
-class SynapseSwitchDefinition:
+class SynapseDateDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,17 +31,17 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("switch")
+    entities = bridge.config_entry.get("date")
     if entities is not None:
-      async_add_entities(SynapseSwitch(hass, bridge, entity) for entity in entities)
+      async_add_entities(SynapseDate(hass, bridge, entity) for entity in entities)
 
 
-class SynapseSwitch(SwitchEntity):
+class SynapseDate(DateEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSwitchDefinition,
+        entity: SynapseDateDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -100,32 +101,15 @@ class SynapseSwitch(SwitchEntity):
 
     # domain specific
     @property
-    def is_on(self):
-        return self.entity.get("is_on")
-
-    @property
-    def device_class(self):
-        return self.entity.get("device_class")
+    def native_value(self):
+        return date.fromisoformat(self.entity.get("native_value"))
 
     @callback
-    async def async_turn_on(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_set_value(self, value: date, **kwargs) -> None:
+        """Proxy the request to set the value."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
-        )
-
-    @callback
-    async def async_turn_off(self, **kwargs) -> None:
-        """Handle the switch press."""
-        self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
-        )
-
-    @callback
-    async def async_turn_toggle(self, **kwargs) -> None:
-        """Handle the switch press."""
-        self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("set_value"),
+            {"unique_id": self.entity.get("unique_id"), "value": value, **kwargs},
         )
 
     def _listen(self):
@@ -152,3 +136,6 @@ class SynapseSwitch(SwitchEntity):
     async def _handle_availability_update(self, event):
         """Handle health status update."""
         self.async_schedule_update_ha_state(True)
+
+
+# type: ignore
