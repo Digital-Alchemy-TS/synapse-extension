@@ -7,14 +7,6 @@ This library works with [@digital-alchemy/synapse](https://github.com/Digital-Al
 - [Extended docs](https://docs.digital-alchemy.app/Synapse-Extension)
 - [Discord](https://discord.gg/JkZ35Gv97Y)
 
-## 🚀 Installing Synapse
-
-To integrate Synapse with Home Assistant, add the following to your `configuration.yaml` and choose one of the install methods
-```yaml
-# Add to configuration.yaml
-synapse:
-```
-
 ### 📦 Via HACS (Recommended)
 
 1. Ensure you have [HACS](https://hacs.xyz/) installed in Home Assistant.
@@ -31,18 +23,6 @@ If you prefer or need to install the integration manually:
 1. Clone or download this repository.
 2. Copy the `custom_components/synapse/` directory from the repository into the `<config_dir>/custom_components/` directory of your Home Assistant installation.
 3. Restart Home Assistant.
-
-### 📚 Supported Domains
-
-Currently, Synapse supports managing various entity types within Home Assistant, including:
-
-- **Switches**: Toggleable entities reflecting the state of external devices or services.
-- **Sensors (with attributes)**: Entities providing readings from external data sources, including associated metadata.
-- **Binary Sensors**: Represent binary states (on/off) of external conditions or inputs.
-- **Buttons**: Triggerable entities that execute actions within external services.
-- **Scenes**: Predefined configurations that adjust multiple entities to specific states (implementation by `@digital-alchemy/automation`).
-
-Future enhancements will expand support to additional domains, enhancing the integration's versatility and applicability to a broader range of automation scenarios.
 
 ## 📖 Usage
 
