@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.todolist import TodoListEntity
 import logging
 
 
-class SynapseSwitchDefinition:
+class SynapseTodoListDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,17 +30,17 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("switch")
+    entities = bridge.config_entry.get("todolist")
     if entities is not None:
-      async_add_entities(SynapseSwitch(hass, bridge, entity) for entity in entities)
+      async_add_entities(SynapseTodoList(hass, bridge, entity) for entity in entities)
 
 
-class SynapseSwitch(SwitchEntity):
+class SynapseTodoList(TodoListEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSwitchDefinition,
+        entity: SynapseTodoListDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -100,32 +100,40 @@ class SynapseSwitch(SwitchEntity):
 
     # domain specific
     @property
-    def is_on(self):
-        return self.entity.get("is_on")
+    def todo_items(self):
+        return self.entity.get("todo_items")
 
     @property
-    def device_class(self):
-        return self.entity.get("device_class")
+    def supported_features(self):
+        return self.entity.get("supported_features")
 
     @callback
-    async def async_turn_on(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_create_todo_item(self, item: str, **kwargs) -> None:
+        """Proxy the request to create a todo item."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("create_todo_item"),
+            {"unique_id": self.entity.get("unique_id"), "item": item, **kwargs},
         )
 
     @callback
-    async def async_turn_off(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_delete_todo_item(self, item_id: str, **kwargs) -> None:
+        """Proxy the request to delete a todo item."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("delete_todo_item"),
+            {"unique_id": self.entity.get("unique_id"), "item_id": item_id, **kwargs},
         )
 
     @callback
-    async def async_turn_toggle(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_move_todo_item(self, item_id: str, position: int, **kwargs) -> None:
+        """Proxy the request to move a todo item."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("move_todo_item"),
+            {
+                "unique_id": self.entity.get("unique_id"),
+                "item_id": item_id,
+                "position": position,
+                **kwargs,
+            },
         )
 
     def _listen(self):

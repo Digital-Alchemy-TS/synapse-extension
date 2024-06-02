@@ -6,11 +6,11 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.lawnmower import LawnMowerEntity
 import logging
 
 
-class SynapseSwitchDefinition:
+class SynapseLawnMowerDefinition:
     attributes: object
     device_class: str
     entity_category: str
@@ -30,17 +30,16 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("switch")
+    entities = bridge.config_entry.get("lawnmower")
     if entities is not None:
-      async_add_entities(SynapseSwitch(hass, bridge, entity) for entity in entities)
+      async_add_entities(SynapseLawnMower(hass, bridge, entity) for entity in entities)
 
-
-class SynapseSwitch(SwitchEntity):
+class SynapseLawnMower(LawnMowerEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSwitchDefinition,
+        entity: SynapseLawnMowerDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -100,33 +99,34 @@ class SynapseSwitch(SwitchEntity):
 
     # domain specific
     @property
-    def is_on(self):
-        return self.entity.get("is_on")
+    def activity(self):
+        return self.entity.get("activity")
 
     @property
-    def device_class(self):
-        return self.entity.get("device_class")
+    def supported_features(self):
+        return self.entity.get("supported_features")
 
     @callback
-    async def async_turn_on(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_start_mowing(self, **kwargs) -> None:
+        """Proxy the request to start mowing."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("start_mowing"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
 
     @callback
-    async def async_turn_off(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_dock(self, **kwargs) -> None:
+        """Proxy the request to dock."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("dock"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
 
     @callback
-    async def async_turn_toggle(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_pause(self, **kwargs) -> None:
+        """Proxy the request to pause."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("pause"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
+
 
     def _listen(self):
         self.async_on_remove(

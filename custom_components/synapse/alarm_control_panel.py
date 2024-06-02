@@ -6,21 +6,21 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.number import NumberEntity
 import logging
 
 
-class SynapseSwitchDefinition:
+class SynapseAlarmControlPanelDefinition:
     attributes: object
-    device_class: str
-    entity_category: str
     icon: str
-    unique_id: str
     name: str
-    state: str | int
     suggested_object_id: str
+    unique_id: str
+
+    changed_by: str
+    code_format: str
     supported_features: int
-    translation_key: str
+    code_arm_required: bool
 
 
 async def async_setup_entry(
@@ -30,17 +30,17 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("switch")
+    entities = bridge.config_entry.get("alarm_control_panel")
     if entities is not None:
-      async_add_entities(SynapseSwitch(hass, bridge, entity) for entity in entities)
+      async_add_entities(SynapseAlarmControlPanel(hass, bridge, entity) for entity in entities)
 
 
-class SynapseSwitch(SwitchEntity):
+class SynapseAlarmControlPanel(NumberEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSwitchDefinition,
+        entity: SynapseAlarmControlPanelDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -100,32 +100,76 @@ class SynapseSwitch(SwitchEntity):
 
     # domain specific
     @property
-    def is_on(self):
-        return self.entity.get("is_on")
+    def changed_by(self):
+        return self.entity.get("changed_by")
 
     @property
-    def device_class(self):
-        return self.entity.get("device_class")
+    def code_format(self):
+        return self.entity.get("code_format")
+
+    @property
+    def supported_features(self):
+        return self.entity.get("supported_features")
+
+    @property
+    def code_arm_required(self):
+        return self.entity.get("code_arm_required")
 
     @callback
-    async def async_turn_on(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_arm_custom_bypass(self, **kwargs) -> None:
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("arm_custom_bypass"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
-    async def async_turn_off(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_trigger(self, **kwargs) -> None:
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("trigger"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     @callback
-    async def async_turn_toggle(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_arm_vacation(self, **kwargs) -> None:
         self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("arm_vacation"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
+        )
+
+    @callback
+    async def async_arm_night(self, **kwargs) -> None:
+        self.hass.bus.async_fire(
+            self.bridge.event_name("arm_night"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
+        )
+
+    @callback
+    async def async_arm_away(self, **kwargs) -> None:
+        self.hass.bus.async_fire(
+            self.bridge.event_name("arm_away"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
+        )
+
+    @callback
+    async def async_arm_home(self, **kwargs) -> None:
+        self.hass.bus.async_fire(
+            self.bridge.event_name("arm_home"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
+        )
+
+    @callback
+    async def async_alarm_disarm(self, **kwargs) -> None:
+        self.hass.bus.async_fire(
+            self.bridge.event_name("alarm_disarm"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
+        )
+
+    @callback
+    async def async_toggle(self, **kwargs) -> None:
+        """Handle the number press."""
+        self.hass.bus.async_fire(
+            self.bridge.event_name("toggle"),
+            {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 
     def _listen(self):

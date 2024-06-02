@@ -6,21 +6,25 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.number import NumberEntity
 import logging
 
 
-class SynapseSwitchDefinition:
+class SynapseNumberDefinition:
     attributes: object
     device_class: str
     entity_category: str
     icon: str
-    unique_id: str
+    max_value: float
+    min_value: float
+    mode: str
     name: str
-    state: str | int
+    state: float
+    step: float
     suggested_object_id: str
     supported_features: int
     translation_key: str
+    unique_id: str
 
 
 async def async_setup_entry(
@@ -30,17 +34,17 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("switch")
+    entities = bridge.config_entry.get("number")
     if entities is not None:
-      async_add_entities(SynapseSwitch(hass, bridge, entity) for entity in entities)
+      async_add_entities(SynapseNumber(hass, bridge, entity) for entity in entities)
 
 
-class SynapseSwitch(SwitchEntity):
+class SynapseNumber(NumberEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
-        entity: SynapseSwitchDefinition,
+        entity: SynapseNumberDefinition,
     ):
         self.hass = hass
         self.bridge = hub
@@ -100,32 +104,39 @@ class SynapseSwitch(SwitchEntity):
 
     # domain specific
     @property
-    def is_on(self):
-        return self.entity.get("is_on")
-
-    @property
     def device_class(self):
         return self.entity.get("device_class")
 
-    @callback
-    async def async_turn_on(self, **kwargs) -> None:
-        """Handle the switch press."""
-        self.hass.bus.async_fire(
-            self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
-        )
+    @property
+    def mode(self):
+        return self.entity.get("mode")
+
+    @property
+    def native_max_value(self):
+        return self.entity.get("native_max_value")
+
+    @property
+    def native_value(self):
+        return self.entity.get("native_value")
+
+    @property
+    def native_min_value(self):
+        return self.entity.get("native_min_value")
+
+    @property
+    def native_step(self):
+        return self.entity.get("step")
+
+    @property
+    def native_unit_of_measurement(self):
+        return self.entity.get("native_unit_of_measurement")
 
     @callback
-    async def async_turn_off(self, **kwargs) -> None:
-        """Handle the switch press."""
+    async def async_set_native_value(self, value: int, **kwargs) -> None:
+        """Proxy the request to set the value."""
         self.hass.bus.async_fire(
-            self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
-        )
-
-    @callback
-    async def async_turn_toggle(self, **kwargs) -> None:
-        """Handle the switch press."""
-        self.hass.bus.async_fire(
-            self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}
+            self.bridge.event_name("set_value"),
+            {"unique_id": self.entity.get("unique_id"), "value": value, **kwargs},
         )
 
     def _listen(self):

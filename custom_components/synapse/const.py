@@ -1,1 +1,37 @@
-DOMAIN = 'synapse'
+DOMAIN = "synapse"
+
+PLATFORMS: list[str] = [
+    "binary_sensor",
+    "date",
+    "datetime",
+    "button",
+    "number",
+    "scene",
+    "sensor",
+    "switch",
+    "select",
+    "text",
+    "time",
+
+
+    "alarm_control_panel",
+    "climate",
+    "cover",
+    "date",
+    "fan",
+    "humidifier",
+    "image",
+    "light",
+    "lock",
+    "remote",
+    "siren",
+    "update",
+    "valve",
+    # "camera",
+    # "lawn_mower",
+    # "media_player",
+    # "notify",
+    # "todo_list",
+    # "vacuum",
+    # "water_heater",
+]
