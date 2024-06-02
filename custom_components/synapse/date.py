@@ -100,6 +100,10 @@ class SynapseDate(DateEntity):
         return self.bridge.connected
 
     # domain specific
+    @property
+    def native_value(self):
+        return date.fromisoformat(self.entity.get("native_value"))
+
     @callback
     async def async_set_value(self, value: date, **kwargs) -> None:
         """Proxy the request to set the value."""

@@ -69,3 +69,32 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({vol.Required(CONF_HOST): str}),
             errors=errors,
         )
+
+    async def async_step_zeroconf(self, discovery_info):
+    # async def async_step_zeroconf(self, discovery_info):
+        """Handle zeroconf discovery."""
+        _LOGGER.warn(discovery_info)
+        try:
+            # info = await get_synapse_description(f"{discovery_info.host}:{discovery_info.port}")
+            return self.async_step_user(host=f"{discovery_info.host}:{discovery_info.port}")
+
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception("Unexpected exception")
+            # errors["base"] = "unknown"
+
+        # name = discovery_info.get('name')
+        # if not name.startswith("Synapse Service"):
+        #     return self.async_abort(reason="not_synapse_service")
+
+        # # Parse the zeroconf data here
+        # host = discovery_info['host']
+        # port = discovery_info['port']
+
+        # # Create the entry for the discovered service
+        # return self.async_create_entry(
+        #     title=name,
+        #     data={
+        #         "host": host,
+        #         "port": port
+        #     }
+        # )

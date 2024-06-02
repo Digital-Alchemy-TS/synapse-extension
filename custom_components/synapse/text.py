@@ -100,16 +100,8 @@ class SynapseText(TextEntity):
 
     # domain specific
     @property
-    def is_on(self):
-        return self.entity.get("is_on")
-
-    @property
-    def available_tones(self):
-        return self.entity.get("available_tones")
-
-    @property
-    def supported_features(self):
-        return self.entity.get("supported_features")
+    def native_value(self):
+        return self.entity.get("native_value")
 
     @callback
     async def async_set_value(self, value: str, **kwargs) -> None:

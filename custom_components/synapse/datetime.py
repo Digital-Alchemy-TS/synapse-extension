@@ -100,12 +100,16 @@ class SynapseDateTime(DateTimeEntity):
         return self.bridge.connected
 
     # domain specific
+    @property
+    def native_value(self):
+        return datetime.fromisoformat(self.entity.get("native_value"))
+
     @callback
     async def async_set_value(self, value: datetime, **kwargs) -> None:
         """Proxy the request to set the value."""
         self.hass.bus.async_fire(
             self.bridge.event_name("set_value"),
-            {"unique_id": self.entity.get("unique_id"), "value": value, **kwargs},
+            {"unique_id": self.entity.get("unique_id"), "value": value.isoformat(), **kwargs},
         )
 
     def _listen(self):

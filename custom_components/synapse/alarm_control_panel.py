@@ -158,9 +158,9 @@ class SynapseAlarmControlPanel(NumberEntity):
         )
 
     @callback
-    async def async_disarm(self, **kwargs) -> None:
+    async def async_alarm_disarm(self, **kwargs) -> None:
         self.hass.bus.async_fire(
-            self.bridge.event_name("disarm"),
+            self.bridge.event_name("alarm_disarm"),
             {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
 

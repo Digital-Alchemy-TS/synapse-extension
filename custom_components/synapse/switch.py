@@ -101,7 +101,7 @@ class SynapseSwitch(SwitchEntity):
     # domain specific
     @property
     def is_on(self):
-        return self.entity.get("state") == "on"
+        return self.entity.get("is_on")
 
     @property
     def device_class(self):

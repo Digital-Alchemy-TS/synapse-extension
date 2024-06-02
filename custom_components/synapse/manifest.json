@@ -10,5 +10,5 @@
   "name": "Digital Alchemy",
   "requirements": ["requests>=2.25.1"],
   "version": "0.3.0",
-  "zeroconf": ["_da_synapse._tcp.local."]
+  "zeroconf": ["_da_synapse2._tcp.local."]
 }
