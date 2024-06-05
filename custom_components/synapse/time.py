@@ -81,7 +81,7 @@ class SynapseTime(TimeEntity):
     @property
     def entity_category(self):
         if self.entity.get("entity_category") == "config":
-            return EntityCategory.config
+            return EntityCategory.CONFIG
         if self.entity.get("entity_category") == "diagnostic":
             return EntityCategory.DIAGNOSTIC
         return None

@@ -131,7 +131,7 @@ class SynapseBridge:
             self.logger.info(f"{self.config_entry.get("app")}:{domain} => {len(incoming_list)} entries")
 
             for incoming in incoming_list:
-                category = EntityCategory.config if incoming.get("entity_category", None) == "config" else EntityCategory.DIAGNOSTIC
+                category = EntityCategory.CONFIG if incoming.get("entity_category", None) == "config" else EntityCategory.DIAGNOSTIC
                 entity_registry.async_get_or_create(
                     domain=domain,
                     platform="synapse",
