@@ -56,6 +56,9 @@ class SynapseHumidifier(HumidifierEntity):
 
     @property
     def unique_id(self):
+        declared = self.get("device_id")
+        if len(declared) > 0:
+            return self.bridge.device_list[declared]
         return self.entity.get("unique_id")
 
     @property

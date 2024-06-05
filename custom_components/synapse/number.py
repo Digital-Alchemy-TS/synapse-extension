@@ -56,6 +56,9 @@ class SynapseNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device registry information for this entity."""
+        declared = self.get("device_id")
+        if len(declared) > 0:
+            return self.bridge.device_list[declared]
         return self.bridge.device
 
     @property

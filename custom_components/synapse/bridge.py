@@ -18,6 +18,7 @@ class SynapseMetadata:
     default_manufacturer: str
     default_model: str
     default_name: str
+    unique_id: str | None
     manufacturer: str | None
     model: str | None
     name: str | None
@@ -39,8 +40,11 @@ class SynapseApplication:
     device: SynapseMetadata
     hash: str
     sensor: list[object]
+    secondary_devices: list[SynapseMetadata]
     boot: str
     title: str
+
+IDENTIFIES_AS = "identifies_as"
 
 class SynapseBridge:
     """Manages a single synapse application"""
@@ -56,6 +60,7 @@ class SynapseBridge:
         self.app = self.config_entry.get("app")
         self._heartbeat_timer = None
         self.host = self.config_entry.get("host")
+        self.device_list = {}
 
         # prefix http if not present
         if not self.host.startswith("http"):
@@ -66,6 +71,7 @@ class SynapseBridge:
 
         # hass
         hass.data.setdefault(DOMAIN, {})[unique_id] = self
+        name = device.get("name")
 
         # device for entities to consume
         self.device = DeviceInfo(
@@ -75,12 +81,32 @@ class SynapseBridge:
             configuration_url=device.get("configuration_url"),
             manufacturer=device.get("manufacturer"),
             model=device.get("model"),
-            name=device.get("name"),
+            name=name,
             hw_version=device.get("hw_version"),
             serial_number=device.get("serial_number"),
             suggested_area=device.get("suggested_area"),
             sw_version=device.get("sw_version"),
         )
+
+        self._declared_devices = {}
+        secondary_devices: list[SynapseMetadata] = self.config_entry.get("secondary_devices")
+
+        for device in secondary_devices:
+            self.logger.debug(f"secondary device {name} => {device.get("name")}")
+            self.device_list[device.get("unique_id")] = DeviceInfo(
+                identifiers={
+                    (DOMAIN, self.config_entry.get("unique_id"))
+                    (IDENTIFIES_AS, device.get("unique_id"))
+                },
+                configuration_url=device.get("configuration_url"),
+                manufacturer=device.get("manufacturer"),
+                model=device.get("model"),
+                name=device.get("name"),
+                hw_version=device.get("hw_version"),
+                serial_number=device.get("serial_number"),
+                suggested_area=device.get("suggested_area"),
+                sw_version=device.get("sw_version"),
+            )
 
         # setup various event listeners
         self._listen()

@@ -30,7 +30,7 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("waterheater")
+    entities = bridge.config_entry.get("water_heater")
     if entities is not None:
       async_add_entities(SynapseWaterHeater(hass, bridge, entity) for entity in entities)
 
@@ -52,6 +52,9 @@ class SynapseWaterHeater(WaterHeaterEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device registry information for this entity."""
+        declared = self.get("device_id")
+        if len(declared) > 0:
+            return self.bridge.device_list[declared]
         return self.bridge.device
 
     @property
