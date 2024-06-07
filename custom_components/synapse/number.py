@@ -56,6 +56,9 @@ class SynapseNumber(NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device registry information for this entity."""
+        declared = self.entity.get("device_id", "")
+        if len(declared) > 0:
+            return self.bridge.device_list[declared]
         return self.bridge.device
 
     @property
@@ -81,7 +84,7 @@ class SynapseNumber(NumberEntity):
     @property
     def entity_category(self):
         if self.entity.get("entity_category") == "config":
-            return EntityCategory.config
+            return EntityCategory.CONFIG
         if self.entity.get("entity_category") == "diagnostic":
             return EntityCategory.DIAGNOSTIC
         return None
