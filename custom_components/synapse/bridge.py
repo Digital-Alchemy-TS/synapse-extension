@@ -44,8 +44,6 @@ class SynapseApplication:
     boot: str
     title: str
 
-IDENTIFIES_AS = "identifies_as"
-
 class SynapseBridge:
     """Manages a single synapse application"""
 
