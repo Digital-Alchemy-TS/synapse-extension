@@ -88,15 +88,14 @@ class SynapseBridge:
             sw_version=device.get("sw_version"),
         )
 
-        self._declared_devices = {}
-        secondary_devices: list[SynapseMetadata] = self.config_entry.get("secondary_devices")
+        secondary_devices: list[SynapseMetadata] = self.config_entry.get("secondary_devices",[])
 
         for device in secondary_devices:
             self.logger.debug(f"secondary device {name} => {device.get("name")}")
             self.device_list[device.get("unique_id")] = DeviceInfo(
+                via_device=(DOMAIN, self.config_entry.get("unique_id")),
                 identifiers={
-                    (DOMAIN, self.config_entry.get("unique_id"))
-                    (IDENTIFIES_AS, device.get("unique_id"))
+                    (DOMAIN, device.get("unique_id")),
                 },
                 configuration_url=device.get("configuration_url"),
                 manufacturer=device.get("manufacturer"),
