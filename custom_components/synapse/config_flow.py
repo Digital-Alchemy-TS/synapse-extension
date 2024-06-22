@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 import voluptuous as vol
 
-from homeassistant.components import dhcp
+from homeassistant.components import dhcp, ssdp
 from homeassistant.config_entries import (
     SOURCE_REAUTH,
     ConfigFlow,
@@ -16,7 +16,7 @@ from homeassistant.const import (
     CONF_DEVICE,
     CONF_HOST,
     CONF_UNIQUE_ID,
-    CONF_MAC,
+    CONF_PORT,
     CONF_MODEL,
     CONF_PASSWORD,
     CONF_USERNAME,
@@ -24,7 +24,6 @@ from homeassistant.const import (
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import AbortFlow, FlowResult
 from homeassistant.helpers import device_registry as dr
-from homeassistant.components import zeroconf
 from homeassistant.helpers.typing import DiscoveryInfoType
 from .const import DOMAIN
 from .bridge import get_synapse_description, SynapseApplication
@@ -43,14 +42,7 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Initialize the Synapse flow."""
         self.application: SynapseApplication | None = None
-
-    async def _async_handle_discovery(
-        self, host: str, data: SynapseApplication, config: dict | None = None
-    ) -> FlowResult:
-        """Handle any discovery."""
-        _LOGGER.warn("_async_handle_discovery", host, data)
-        await self.async_set_unique_id(data.unique_id, raise_on_progress=False)
-        self._abort_if_unique_id_configured(updates={CONF_UNIQUE_ID: data.unique_id})
+        self.discovery_info: dict | None = None
 
     async def async_step_user(self, user_input=None):
         """Handle a flow initialized by the user."""
@@ -58,10 +50,10 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 info = await get_synapse_description(user_input[CONF_HOST])
+                await self.async_set_unique_id(info.get("unique_id"))
+                self._abort_if_unique_id_configured()
                 return self.async_create_entry(title=info.get("title"), data=info)
-
             except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
 
         return self.async_show_form(
@@ -70,31 +62,28 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_zeroconf(self, discovery_info):
-    # async def async_step_zeroconf(self, discovery_info):
-        """Handle zeroconf discovery."""
-        _LOGGER.warn(discovery_info)
+    async def async_step_ssdp(self, discovery_info: ssdp.SsdpServiceInfo) -> FlowResult:
+        """Handle a flow initialized by SSDP discovery."""
+        self.discovery_info = discovery_info
+        host = discovery_info.ssdp_location.split("/")[2]
         try:
-            # info = await get_synapse_description(f"{discovery_info.host}:{discovery_info.port}")
-            return self.async_step_user(host=f"{discovery_info.host}:{discovery_info.port}")
+            info = await get_synapse_description(host)
+            await self.async_set_unique_id(info.get("unique_id"))
 
+            self._abort_if_unique_id_configured()
+            self.context["title_placeholders"] = {"name": info["title"]}
+            self.application = info
+            return await self.async_step_confirm()
         except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected exception")
-            # errors["base"] = "unknown"
+            return self.async_abort(reason="unknown_error")
 
-        # name = discovery_info.get('name')
-        # if not name.startswith("Synapse Service"):
-        #     return self.async_abort(reason="not_synapse_service")
+    async def async_step_confirm(self, user_input=None):
+        """Handle the confirmation step."""
+        if user_input is not None:
+            return self.async_create_entry(title=self.application["title"], data=self.application)
 
-        # # Parse the zeroconf data here
-        # host = discovery_info['host']
-        # port = discovery_info['port']
-
-        # # Create the entry for the discovered service
-        # return self.async_create_entry(
-        #     title=name,
-        #     data={
-        #         "host": host,
-        #         "port": port
-        #     }
-        # )
+        return self.async_show_form(
+            step_id="confirm",
+            description_placeholders={"name": self.application["title"]},
+            data_schema=vol.Schema({}),
+        )

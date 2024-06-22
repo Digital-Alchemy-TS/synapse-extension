@@ -5,7 +5,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.const import EntityCategory
-
+from homeassistant.helpers.entity_platform import async_get_platforms
 import aiohttp
 import logging
 
@@ -105,9 +105,6 @@ class SynapseBridge:
                 sw_version=device.get("sw_version"),
             )
 
-        # setup various event listeners
-        self._listen()
-
     @property
     def hub_id(self) -> str:
         """ID reported by service"""
@@ -149,6 +146,12 @@ class SynapseBridge:
             #     self.logger.debug(f"{app}:{service} remove {removal._name}")
             #     hass.async_create_task(removal.async_remove())
 
+    async def async_setup_health_sensor(self):
+        """Setup the health sensor entity."""
+        platform = async_get_platforms(self.hass, DOMAIN)
+        if platform:
+            await platform[0].async_add_entities([SynapseHealthSensor(self.hass, self)])
+
     async def reload(self):
         """Attach reload call to gather new metadata & update local info"""
         self.logger.debug("reloading")
@@ -169,51 +172,6 @@ class SynapseBridge:
                     await asyncio.sleep(5)
                 else:
                     raise e
-
-    def _listen(self):
-        """Set up bus listeners & initialize heartbeat"""
-        self.hass.bus.async_listen(
-            self.event_name("heartbeat"), self._handle_heartbeat
-        )
-        self.hass.bus.async_listen(
-            self.event_name("shutdown"), self._handle_shutdown
-        )
-        self._reset_heartbeat_timer()
-
-    @callback
-    def _handle_shutdown(self, event):
-        """Explicit shutdown events emitted by app"""
-        self.logger.debug(f"{self.config_entry.get("app")} going offline")
-        self.connected = False
-        self.hass.bus.async_fire(self.event_name("health"))
-        if self._heartbeat_timer:
-            self._heartbeat_timer.cancel()
-
-    @callback
-    def _mark_as_dead(self, event):
-        """Timeout on heartbeat. Unexpected shutdown by app?"""
-        if self.connected == False:
-            return
-        # He's dead Jim
-        self.logger.info(f"{self.config_entry.get("app")} no heartbeat")
-        self.connected = False
-        self.hass.bus.async_fire(self.event_name("health"))
-
-    def _reset_heartbeat_timer(self):
-        """Detected a heartbeat, wait for next"""
-        if self._heartbeat_timer:
-            self._heartbeat_timer.cancel()
-        self._heartbeat_timer = self.hass.loop.call_later(30, self._mark_as_dead)
-
-    @callback
-    def _handle_heartbeat(self, event):
-        """Handle heartbeat events."""
-        self._reset_heartbeat_timer()
-        if self.connected == True:
-            return
-        self.logger.debug(f"{self.config_entry.get("app")} online")
-        self.connected = True
-        self.hass.bus.async_fire(self.event_name("health"))
 
 async def get_synapse_description(ip_port: str) -> SynapseApplication:
     if not ip_port.startswith("http"):
