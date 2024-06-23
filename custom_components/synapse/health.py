@@ -1,11 +1,9 @@
-from .bridge import SynapseBridge
 from .const import DOMAIN
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback, HomeAssistant
 from homeassistant.const import EntityCategory
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.binary_sensor import BinarySensorEntity
 import logging
 
@@ -14,16 +12,22 @@ class SynapseHealthSensor(BinarySensorEntity):
     def __init__(
         self,
         hass: HomeAssistant,
-        hub: SynapseBridge,
+        namespace: str,
+        device,
+        config_entry: ConfigEntry,
     ):
+        self.config_entry = config_entry
+        self.device = device
+        self.namespace = namespace
         self.hass = hass
-        self.bridge = hub
+        self._heartbeat_timer = None
         self.logger = logging.getLogger(__name__)
+        self.online = False
         self._listen()
 
     @property
     def device_info(self) -> DeviceInfo:
-        return self.bridge.device
+        return self.device
 
     @property
     def entity_category(self):
@@ -31,11 +35,11 @@ class SynapseHealthSensor(BinarySensorEntity):
 
     @property
     def name(self):
-        return f"${self.bridge.config_entry.get("title")} Online"
+        return f"${self.config_entry.get("title")} Online"
 
     @property
     def is_on(self):
-        return self.bridge.connected
+        return self.online
 
     def _listen(self):
         self.async_on_remove(
@@ -56,7 +60,7 @@ class SynapseHealthSensor(BinarySensorEntity):
     def _handle_shutdown(self, event):
         """Explicit shutdown events emitted by app"""
         self.logger.debug(f"{self.config_entry.get("app")} going offline")
-        self.bridge.connected = False
+        self.online = False
         self.hass.bus.async_fire(self.event_name("health"))
         if self._heartbeat_timer:
             self._heartbeat_timer.cancel()
@@ -65,11 +69,11 @@ class SynapseHealthSensor(BinarySensorEntity):
     @callback
     def _mark_as_dead(self, event):
         """Timeout on heartbeat. Unexpected shutdown by app?"""
-        if self.bridge.connected == False:
+        if self.online == False:
             return
         # He's dead Jim
         self.logger.info(f"{self.config_entry.get("app")} no heartbeat")
-        self.bridge.connected = False
+        self.online = False
         self.hass.bus.async_fire(self.event_name("health"))
         self.async_schedule_update_ha_state(True)
 
@@ -83,9 +87,13 @@ class SynapseHealthSensor(BinarySensorEntity):
     def _handle_heartbeat(self, event):
         """Handle heartbeat events."""
         self._reset_heartbeat_timer()
-        if self.bridge.connected == True:
+        if self.online == True:
             return
         self.logger.debug(f"{self.config_entry.get("app")} online")
-        self.bridge.connected = True
+        self.online = True
         self.hass.bus.async_fire(self.event_name("health"))
         self.async_schedule_update_ha_state(True)
+
+    def event_name(self, event: str):
+        """Standard format for event bus names to keep apps separate"""
+        return f"{self.namespace}/{event}/{self.config_entry.get("app")}"

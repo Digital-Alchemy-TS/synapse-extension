@@ -1,5 +1,6 @@
 import asyncio
 from .const import DOMAIN, PLATFORMS
+from .health import SynapseHealthSensor
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
@@ -53,11 +54,10 @@ class SynapseBridge:
         self.logger = logging.getLogger(__name__)
         self.config_entry: SynapseApplication = config_entry
         self.hass = hass
-        self.connected = False
         self.namespace = "digital_alchemy"
         self.app = self.config_entry.get("app")
-        self._heartbeat_timer = None
         self.host = self.config_entry.get("host")
+        self.health: SynapseHealthSensor = None
         self.device_list = {}
 
         # prefix http if not present
@@ -105,14 +105,21 @@ class SynapseBridge:
                 sw_version=device.get("sw_version"),
             )
 
+
+    def event_name(self, event: str):
+        """Standard format for event bus names to keep apps separate"""
+        return f"{self.namespace}/{event}/{self.config_entry.get("app")}"
+
     @property
     def hub_id(self) -> str:
         """ID reported by service"""
         return self.config_entry.get("unique_id")
 
-    def event_name(self, event: str):
-        """Standard format for event bus names to keep apps separate"""
-        return f"{self.namespace}/{event}/{self.app}"
+    def connected(self) -> bool:
+        """Is the bridge currently online"""
+        if self.health is not None:
+            return self.health.online
+        return False
 
     async def import_data(self):
         """Process the current entity data, generating new entities / removing old ones"""
@@ -150,7 +157,8 @@ class SynapseBridge:
         """Setup the health sensor entity."""
         platform = async_get_platforms(self.hass, DOMAIN)
         if platform:
-            await platform[0].async_add_entities([SynapseHealthSensor(self.hass, self)])
+            self.health = SynapseHealthSensor(self.hass, self.namespace, self.device, self.config_entry)
+            await platform[0].async_add_entities([self.health])
 
     async def reload(self):
         """Attach reload call to gather new metadata & update local info"""
