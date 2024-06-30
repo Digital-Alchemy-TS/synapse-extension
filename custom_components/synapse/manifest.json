@@ -9,7 +9,7 @@
   "issue_tracker": "https://github.com/digital-alchemy-ts/synapse-extension/issues",
   "name": "Digital Alchemy",
   "requirements": ["requests>=2.25.1"],
-  "version": "0.3.0",
+  "version": "24.6.1",
   "ssdp": [
     {
       "manufacturer": "synapse",
