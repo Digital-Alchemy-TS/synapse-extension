@@ -10,7 +10,6 @@
   "name": "Digital Alchemy",
   "requirements": ["requests>=2.25.1"],
   "version": "0.3.0",
-  "zeroconf": ["_synapse._tcp.local."],
   "ssdp": [
     {
       "manufacturer": "synapse",
