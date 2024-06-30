@@ -1,0 +1,15 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "Application must be online and connected to Home Assistant.",
+        "data_description": {
+          "host": "address:ports"
+        }
+      },
+      "confirm": {
+        "description": "Import entities "
+      }
+    }
+  }
+}

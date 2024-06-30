@@ -99,7 +99,7 @@ class SynapseButton(ButtonEntity):
 
     @property
     def available(self):
-        return self.bridge.connected
+        return self.bridge.connected()
 
     # domain specific
     @property
