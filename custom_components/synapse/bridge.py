@@ -1,5 +1,5 @@
 import asyncio
-from .const import DOMAIN, PLATFORMS
+from .const import DOMAIN, PLATFORMS, EVENT_NAMESPACE
 from .health import SynapseHealthSensor
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -9,6 +9,10 @@ from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import async_get_platforms
 import aiohttp
 import logging
+import gzip
+import json
+import io
+import binascii
 
 RETRIES = 5
 
@@ -27,8 +31,6 @@ class SynapseMetadata:
     suggested_area: str | None
     sw_version: str | None
     hw_version: str | None
-
-
 
 class SynapseApplication:
     """Description of application state"""
@@ -52,17 +54,18 @@ class SynapseBridge:
         """Initialize the system"""
         # variables
         self.logger = logging.getLogger(__name__)
+        if config_entry is None:
+            self.logger.error("application not online, reload integration after connecting")
+            return
         self.config_entry: SynapseApplication = config_entry
         self.hass = hass
-        self.namespace = "digital_alchemy"
-        self.app = self.config_entry.get("app")
-        self.host = self.config_entry.get("host")
+        self.namespace = EVENT_NAMESPACE
+
+        if config_entry is not None:
+          self.app = config_entry.get("app")
+
         self.health: SynapseHealthSensor = None
         self.device_list = {}
-
-        # prefix http if not present
-        if not self.host.startswith("http"):
-            self.host = f"http://{self.host}"
 
         device = config_entry.get("device")
         unique_id = config_entry.get("unique_id")
@@ -163,30 +166,51 @@ class SynapseBridge:
     async def reload(self):
         """Attach reload call to gather new metadata & update local info"""
         self.logger.debug("reloading")
-        self.config_entry = await get_synapse_description(self.host)
-        self.host = self.config_entry.get("host")
 
-    async def refresh_data(self) -> SynapseApplication:
-        """Reach back out w/ retries to the app and request new data"""
-        for attempt in range(RETRIES):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(f"{self.host}/synapse") as response:
-                        data = await response.json()
-                        return data
-            except Exception as e:
-                if attempt < RETRIES - 1:
-                    self.logger.debug("refresh retrying in 5 seconds")
-                    await asyncio.sleep(5)
-                else:
-                    raise e
+        data = await self.identify(self.app)
+        if data is None:
+            self.logger.warn("no response, is app connected?")
+            return
+        # Update local info
+        self.config_entry = data
 
-async def get_synapse_description(ip_port: str) -> SynapseApplication:
-    if not ip_port.startswith("http"):
-        ip_port = "http://" + ip_port
+    async def wait_for_reload_reply(self, event_name):
+        """Wait for reload reply event with hex string data payload, with a timeout of 2 seconds"""
+        future = asyncio.Future()
 
-    url = f"{ip_port}/synapse"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            data = await response.json()
-            return data
+        def handle_event(event):
+            if not future.done():
+                future.set_result(event.data['compressed'])
+
+        self.hass.loop.call_soon_threadsafe(
+            self.hass.bus.async_listen_once,
+            event_name,
+            handle_event
+        )
+
+        try:
+            return await asyncio.wait_for(future, timeout=0.5)
+        except asyncio.TimeoutError:
+            return None
+
+    async def identify(self, app: str):
+        """Attach reload call to gather new metadata & update local info"""
+
+        # Send reload request
+        self.hass.bus.async_fire(f"{EVENT_NAMESPACE}/discovery/{app}")
+
+        # Wait for incoming reply
+        hex_str = await self.wait_for_reload_reply(f"{EVENT_NAMESPACE}/identify/{app}")
+
+        if hex_str is None:
+            return None
+
+        # Convert hex string to object
+        return hex_to_object(hex_str)
+
+
+def hex_to_object(hex_str: str):
+    compressed_data = binascii.unhexlify(hex_str)
+    with gzip.GzipFile(fileobj=io.BytesIO(compressed_data)) as f:
+        json_str = f.read().decode('utf-8')
+    return json.loads(json_str)

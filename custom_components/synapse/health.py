@@ -35,7 +35,11 @@ class SynapseHealthSensor(BinarySensorEntity):
 
     @property
     def name(self):
-        return f"${self.config_entry.get("title")} Online"
+        return f"{self.config_entry.get("title")} Online"
+
+    @property
+    def unique_id(self):
+        return f"{self.config_entry.get("unique_id")}-online"
 
     @property
     def is_on(self):
@@ -67,7 +71,7 @@ class SynapseHealthSensor(BinarySensorEntity):
         self.async_schedule_update_ha_state(True)
 
     @callback
-    def _mark_as_dead(self, event):
+    def _mark_as_dead(self, event=None):
         """Timeout on heartbeat. Unexpected shutdown by app?"""
         if self.online == False:
             return
@@ -82,7 +86,7 @@ class SynapseHealthSensor(BinarySensorEntity):
         if self._heartbeat_timer:
             self._heartbeat_timer.cancel()
         self._heartbeat_timer = self.hass.loop.call_later(30, self._mark_as_dead)
-
+        self.async_on_remove(lambda: self._heartbeat_timer.cancel())
     @callback
     def _handle_heartbeat(self, event):
         """Handle heartbeat events."""

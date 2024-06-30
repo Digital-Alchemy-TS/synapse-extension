@@ -1,7 +1,7 @@
 DOMAIN = "synapse"
-
+EVENT_NAMESPACE = "digital_alchemy"
 PLATFORMS: list[str] = [
-    "alarm_control_panel",
+    # "alarm_control_panel",
     "binary_sensor",
     "button",
     "climate",
