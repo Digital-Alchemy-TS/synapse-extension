@@ -33,7 +33,7 @@ async def async_setup_entry(
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
     entities = bridge.config_entry.get("date")
     if entities is not None:
-      async_add_entities(SynapseDate(hass, bridge, entity) for entity in entities)
+        async_add_entities(SynapseDate(hass, bridge, entity) for entity in entities)
 
 
 class SynapseDate(DateEntity):
@@ -100,7 +100,7 @@ class SynapseDate(DateEntity):
 
     @property
     def available(self):
-        return self.bridge.connected
+        return self.bridge.connected()
 
     # domain specific
     @property

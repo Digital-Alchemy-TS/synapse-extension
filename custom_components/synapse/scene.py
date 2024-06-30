@@ -99,7 +99,7 @@ class SynapseScene(SceneEntity):
 
     @property
     def available(self):
-        return self.bridge.connected
+        return self.bridge.connected()
 
     @callback
     async def async_activate(self) -> None:

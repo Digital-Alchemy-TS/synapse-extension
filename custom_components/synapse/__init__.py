@@ -11,6 +11,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await bridge.reload()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await bridge.async_setup_health_sensor()
     await bridge.import_data()
     return True
 
