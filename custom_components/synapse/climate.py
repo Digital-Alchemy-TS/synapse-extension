@@ -99,6 +99,8 @@ class SynapseClimate(ClimateEntity):
 
     @property
     def available(self):
+        if self.entity.get("disabled") == True:
+            return False
         return self.bridge.connected()
 
     # domain specific
