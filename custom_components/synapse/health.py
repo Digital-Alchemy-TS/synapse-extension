@@ -6,6 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.components.binary_sensor import BinarySensorEntity
 import logging
+from .const import SynapseApplication
 
 
 class SynapseHealthSensor(BinarySensorEntity):
@@ -17,6 +18,7 @@ class SynapseHealthSensor(BinarySensorEntity):
         config_entry: ConfigEntry,
     ):
         self.config_entry = config_entry
+        self.config_data: SynapseApplication = config_entry.data
         self.device = device
         self.namespace = namespace
         self.hass = hass
@@ -35,11 +37,11 @@ class SynapseHealthSensor(BinarySensorEntity):
 
     @property
     def name(self):
-        return f"{self.config_entry.get("title")} Online"
+        return f"{self.config_data.get("title")} Online"
 
     @property
     def unique_id(self):
-        return f"{self.config_entry.get("unique_id")}-online"
+        return f"{self.config_data.get("unique_id")}-online"
 
     @property
     def is_on(self):
@@ -63,7 +65,7 @@ class SynapseHealthSensor(BinarySensorEntity):
     @callback
     def _handle_shutdown(self, event):
         """Explicit shutdown events emitted by app"""
-        self.logger.debug(f"{self.config_entry.get("app")} going offline")
+        self.logger.debug(f"{self.config_data.get("app")} going offline")
         self.online = False
         self.hass.bus.async_fire(self.event_name("health"))
         if self._heartbeat_timer:
@@ -76,7 +78,7 @@ class SynapseHealthSensor(BinarySensorEntity):
         if self.online == False:
             return
         # He's dead Jim
-        self.logger.info(f"{self.config_entry.get("app")} no heartbeat")
+        self.logger.info(f"{self.config_data.get("app")} no heartbeat")
         self.online = False
         self.hass.bus.async_fire(self.event_name("health"))
         self.async_schedule_update_ha_state(True)
@@ -93,11 +95,11 @@ class SynapseHealthSensor(BinarySensorEntity):
         self._reset_heartbeat_timer()
         if self.online == True:
             return
-        self.logger.debug(f"{self.config_entry.get("app")} online")
+        self.logger.debug(f"{self.config_data.get("app")} online")
         self.online = True
         self.hass.bus.async_fire(self.event_name("health"))
         self.async_schedule_update_ha_state(True)
 
     def event_name(self, event: str):
         """Standard format for event bus names to keep apps separate"""
-        return f"{self.namespace}/{event}/{self.config_entry.get("app")}"
+        return f"{self.namespace}/{event}/{self.config_data.get("app")}"

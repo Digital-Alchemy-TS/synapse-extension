@@ -1,28 +1,14 @@
-from .bridge import SynapseBridge
-from .const import DOMAIN
-
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import callback, HomeAssistant
-from homeassistant.const import EntityCategory
-from homeassistant.helpers.device_registry import DeviceInfo
-from datetime import datetime
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.components.datetime import DateTimeEntity
 import logging
 
+from datetime import datetime
+from homeassistant.components.datetime import DateTimeEntity
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import callback, HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-class SynapseDateTimeDefinition:
-    attributes: object
-    device_class: str
-    entity_category: str
-    icon: str
-    unique_id: str
-    name: str
-    state: str | int
-    suggested_object_id: str
-    supported_features: int
-    translation_key: str
-
+from .base_entity import SynapseBaseEntity
+from .bridge import SynapseBridge
+from .const import DOMAIN, SynapseDateTimeDefinition
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -31,78 +17,20 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("datetime")
+    entities = bridge.config_data.get("datetime")
     if entities is not None:
       async_add_entities(SynapseDateTime(hass, bridge, entity) for entity in entities)
 
-
-class SynapseDateTime(DateTimeEntity):
+class SynapseDateTime(SynapseBaseEntity, DateTimeEntity):
     def __init__(
         self,
         hass: HomeAssistant,
         hub: SynapseBridge,
         entity: SynapseDateTimeDefinition,
     ):
-        self.hass = hass
-        self.bridge = hub
-        self.entity = entity
+        super().__init__(hass, hub, entity)
         self.logger = logging.getLogger(__name__)
-        self._listen()
 
-    # common to all
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device registry information for this entity."""
-        declared = self.entity.get("device_id", "")
-        if len(declared) > 0:
-            return self.bridge.device_list[declared]
-        return self.bridge.device
-
-    @property
-    def unique_id(self):
-        return self.entity.get("unique_id")
-
-    @property
-    def suggested_object_id(self):
-        return self.entity.get("suggested_object_id")
-
-    @property
-    def translation_key(self):
-        return self.entity.get("translation_key")
-
-    @property
-    def icon(self):
-        return self.entity.get("icon")
-
-    @property
-    def extra_state_attributes(self):
-        return self.entity.get("attributes") or {}
-
-    @property
-    def entity_category(self):
-        if self.entity.get("entity_category") == "config":
-            return EntityCategory.CONFIG
-        if self.entity.get("entity_category") == "diagnostic":
-            return EntityCategory.DIAGNOSTIC
-        return None
-
-    @property
-    def name(self):
-        return self.entity.get("name")
-
-    @property
-    def suggested_area_id(self):
-        return self.entity.get("area_id")
-
-    @property
-    def labels(self):
-        return self.entity.get("labels")
-
-    @property
-    def available(self):
-        return self.bridge.connected()
-
-    # domain specific
     @property
     def native_value(self):
         return datetime.fromisoformat(self.entity.get("native_value"))
@@ -139,6 +67,3 @@ class SynapseDateTime(DateTimeEntity):
     async def _handle_availability_update(self, event):
         """Handle health status update."""
         self.async_schedule_update_ha_state(True)
-
-
-# type: ignore

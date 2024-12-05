@@ -6,13 +6,13 @@ import logging
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Synapse app from a config entry."""
-    bridge = SynapseBridge(hass, entry.data)
+    bridge = SynapseBridge(hass, entry)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = bridge
 
     await bridge.reload()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    await bridge.async_setup_health_sensor()
-    await bridge.import_data()
+    # await bridge.async_setup_health_sensor()
+    await bridge.import_data(entry)
     return True
 
 

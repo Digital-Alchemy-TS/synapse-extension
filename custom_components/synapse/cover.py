@@ -1,5 +1,5 @@
 from .bridge import SynapseBridge
-from .const import DOMAIN
+from .const import DOMAIN, SynapseCoverDefinition
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback, HomeAssistant
@@ -10,17 +10,6 @@ from homeassistant.components.cover import CoverEntity
 import logging
 
 
-class SynapseCoverDefinition:
-    attributes: object
-    device_class: str
-    entity_category: str
-    icon: str
-    unique_id: str
-    name: str
-    state: str | int
-    suggested_object_id: str
-    supported_features: int
-    translation_key: str
 
 
 async def async_setup_entry(
@@ -30,7 +19,7 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_entry.get("cover")
+    entities = bridge.config_data.get("cover")
     if entities is not None:
       async_add_entities(SynapseCover(hass, bridge, entity) for entity in entities)
 

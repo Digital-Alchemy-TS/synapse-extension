@@ -1,9 +1,9 @@
 import asyncio
-from .const import DOMAIN, PLATFORMS, EVENT_NAMESPACE
+from .const import DOMAIN, PLATFORMS, EVENT_NAMESPACE, SynapseApplication, SynapseMetadata
 from .health import SynapseHealthSensor
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import entity_registry as er, device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.entity_platform import async_get_platforms
@@ -14,38 +14,21 @@ import json
 import io
 import binascii
 
+from homeassistant.const import (
+    ATTR_CONNECTIONS,
+    ATTR_IDENTIFIERS,
+    ATTR_MANUFACTURER,
+    ATTR_MODEL,
+    ATTR_NAME,
+    ATTR_SUGGESTED_AREA,
+    ATTR_SW_VERSION,
+    ATTR_HW_VERSION,
+    ATTR_CONFIGURATION_URL,
+    ATTR_SERIAL_NUMBER,
+    ATTR_VIA_DEVICE,
+)
+
 RETRIES = 5
-
-
-class SynapseMetadata:
-    """Entity device information for device registry."""
-    configuration_url: str | None
-    default_manufacturer: str
-    default_model: str
-    default_name: str
-    unique_id: str | None
-    manufacturer: str | None
-    model: str | None
-    name: str | None
-    serial_number: str | None
-    suggested_area: str | None
-    sw_version: str | None
-    hw_version: str | None
-
-class SynapseApplication:
-    """Description of application state"""
-    hostname: str
-    name: str
-    unique_id: str
-    username: str
-    version: str
-    app: str
-    device: SynapseMetadata
-    hash: str
-    sensor: list[object]
-    secondary_devices: list[SynapseMetadata]
-    boot: str
-    title: str
 
 class SynapseBridge:
     """Manages a single synapse application"""
@@ -57,66 +40,61 @@ class SynapseBridge:
         if config_entry is None:
             self.logger.error("application not online, reload integration after connecting")
             return
-        self.config_entry: SynapseApplication = config_entry
+        self.config_entry = config_entry
+        self.config_data: SynapseApplication = config_entry.data
+
+        device_registry = dr.async_get(hass)
         self.hass = hass
         self.namespace = EVENT_NAMESPACE
 
-        if config_entry is not None:
-          self.app = config_entry.get("app")
+        if self.config_data is not None:
+          self.app = self.config_data.get("app")
 
         self.health: SynapseHealthSensor = None
         self.device_list = {}
 
-        device = config_entry.get("device")
-        unique_id = config_entry.get("unique_id")
-
-        # hass
-        hass.data.setdefault(DOMAIN, {})[unique_id] = self
-        name = device.get("name")
-
-        # device for entities to consume
-        self.device = DeviceInfo(
-            identifiers={
-                (DOMAIN, self.config_entry.get("unique_id"))
-            },
-            configuration_url=device.get("configuration_url"),
-            manufacturer=device.get("manufacturer"),
-            model=device.get("model"),
-            name=name,
-            hw_version=device.get("hw_version"),
-            serial_number=device.get("serial_number"),
-            suggested_area=device.get("suggested_area"),
-            sw_version=device.get("sw_version"),
+        params = self.format_info()
+        self.device = DeviceInfo(**params)
+        device_registry.async_get_or_create(
+            config_entry_id=self.config_entry.entry_id,
+            **params
         )
+        hass.data.setdefault(DOMAIN, {})[self.config_data.get("unique_id")] = self
 
-        secondary_devices: list[SynapseMetadata] = self.config_entry.get("secondary_devices",[])
+        secondary_devices: list[SynapseMetadata] = self.config_data.get("secondary_devices",[])
 
         for device in secondary_devices:
-            self.logger.debug(f"secondary device {name} => {device.get("name")}")
-            self.device_list[device.get("unique_id")] = DeviceInfo(
-                via_device=(DOMAIN, self.config_entry.get("unique_id")),
-                identifiers={
-                    (DOMAIN, device.get("unique_id")),
-                },
-                configuration_url=device.get("configuration_url"),
-                manufacturer=device.get("manufacturer"),
-                model=device.get("model"),
-                name=device.get("name"),
-                hw_version=device.get("hw_version"),
-                serial_number=device.get("serial_number"),
-                suggested_area=device.get("suggested_area"),
-                sw_version=device.get("sw_version"),
-            )
+            self.logger.debug(f"secondary device {device.get("name")} => {device.get("name")}")
+            params = self.format_info(device)
+            params[ATTR_VIA_DEVICE] = (DOMAIN, self.config_data.get("unique_id"))
 
+            self.device_list[device.get("unique_id")] = DeviceInfo(**params)
+            device_registry.async_get_or_create(config_entry_id=self.config_entry.entry_id,**params)
+
+    def format_info(self, device = None):
+        device = device or self.config_data.get("device")
+        return {
+            ATTR_IDENTIFIERS: {
+                (DOMAIN, self.config_data.get("unique_id"))
+            },
+            ATTR_CONFIGURATION_URL: device.get("configuration_url"),
+            ATTR_MANUFACTURER: device.get("manufacturer"),
+            ATTR_MODEL: device.get("model"),
+            ATTR_NAME: device.get("name"),
+            ATTR_HW_VERSION: device.get("hw_version"),
+            ATTR_SERIAL_NUMBER: device.get("serial_number"),
+            ATTR_SUGGESTED_AREA: device.get("suggested_area"),
+            ATTR_SW_VERSION: device.get("sw_version"),
+        }
 
     def event_name(self, event: str):
         """Standard format for event bus names to keep apps separate"""
-        return f"{self.namespace}/{event}/{self.config_entry.get("app")}"
+        return f"{self.namespace}/{event}/{self.config_data.get("app")}"
 
     @property
     def hub_id(self) -> str:
         """ID reported by service"""
-        return self.config_entry.get("unique_id")
+        return self.config_data.get("unique_id")
 
     def connected(self) -> bool:
         """Is the bridge currently online"""
@@ -124,44 +102,35 @@ class SynapseBridge:
             return self.health.online
         return False
 
-    async def import_data(self):
+    async def import_data(self, entry: ConfigEntry):
         """Process the current entity data, generating new entities / removing old ones"""
         entity_registry = er.async_get(self.hass)
+        found = []
         # * Process entities
         for domain in PLATFORMS:
-            incoming_list = self.config_entry.get(domain)
+            incoming_list = self.config_data.get(domain)
             if incoming_list is None:
                 continue
-            self.logger.info(f"{self.config_entry.get("app")}:{domain} => {len(incoming_list)} entries")
+            self.logger.info(f"{self.config_data.get("app")}:{domain} => {len(incoming_list)} entries")
 
             for incoming in incoming_list:
-                category = EntityCategory.CONFIG if incoming.get("entity_category", None) == "config" else EntityCategory.DIAGNOSTIC
-                entity_registry.async_get_or_create(
-                    domain=domain,
-                    platform="synapse",
-                    unique_id=incoming.get("id"),
-                    suggested_object_id=incoming.get("suggested_object_id", None),
-                    entity_category=category,
-                    unit_of_measurement=incoming.get("unit_of_measurement"),
-                    supported_features=incoming.get("supported_features"),
-                    original_device_class=incoming.get("device_class"),
-                    original_icon=incoming.get("icon"),
-                    original_name=incoming.get("name")
-                )
+                found.append(incoming.get("unique_id"))
 
+            remove = []
+            for entity_id, entry in entity_registry.entities.items():
+                if entry.platform == "synapse" and entry.config_entry_id == self.config_entry.entry_id:
+                    if entry.unique_id not in found:
+                        remove.append(entry.entity_id)
 
-            # # * Remove entities not in the update
-            # for entity_id in current_ids - updated_id_list:
-            #     removal = hass.data[DOMAIN][service].pop(entity_id)
-            #     self.logger.debug(f"{app}:{service} remove {removal._name}")
-            #     hass.async_create_task(removal.async_remove())
+            for entity_id in remove:
+                entity_registry.async_remove(entity_id)
 
     async def async_setup_health_sensor(self):
         """Setup the health sensor entity."""
         platform = async_get_platforms(self.hass, DOMAIN)
-        if platform:
-            self.health = SynapseHealthSensor(self.hass, self.namespace, self.device, self.config_entry)
-            await platform[0].async_add_entities([self.health])
+        # if platform:
+        #     self.health = SynapseHealthSensor(self.hass, self.namespace, self.device, self.config_entry)
+        #     await platform[0].async_add_entities([self.health])
 
     async def reload(self):
         """Attach reload call to gather new metadata & update local info"""
@@ -172,7 +141,7 @@ class SynapseBridge:
             self.logger.warn("no response, is app connected?")
             return
         # Update local info
-        self.config_entry = data
+        self.config_data = data
 
     async def wait_for_reload_reply(self, event_name):
         """Wait for reload reply event with hex string data payload, with a timeout of 2 seconds"""
