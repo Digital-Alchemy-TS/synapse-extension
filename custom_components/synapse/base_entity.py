@@ -19,7 +19,6 @@ class SynapseBaseEntity(Entity):
         self.hass = hass
         self.bridge = hub
         self.entity = entity
-        # entity.unique_id
         self.logger = logging.getLogger(__name__)
         self.device = hub.device
         self._listen()
@@ -75,8 +74,9 @@ class SynapseBaseEntity(Entity):
 
     @property
     def available(self):
-        return True
-        # return self.bridge.connected()
+        if self.entity.get("disabled") == True:
+            return False
+        return self.bridge.connected()
 
     def _listen(self):
         self.async_on_remove(
