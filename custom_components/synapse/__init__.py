@@ -8,8 +8,15 @@ from .synapse.const import DOMAIN, PLATFORMS
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Set up Synapse app from a config entry."""
-    bridge = SynapseBridge(hass, config_entry)
-    hass.data.setdefault(DOMAIN, {})[config_entry.entry_id] = bridge
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    bridge = None
+
+    if config_entry.entry_id not in domain_data:
+        bridge = SynapseBridge(hass, config_entry)
+        domain_data[config_entry.entry_id] = bridge
+    else:
+        bridge = domain_data[config_entry.entry_id]
+
     await bridge.async_reload()
 
     # adapter is ready to hand off data to entities
@@ -21,13 +28,13 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     )
     return True
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    bridge: SynapseBridge = hass.data.setdefault(DOMAIN, {})[entry.entry_id]
+    bridge: SynapseBridge = hass.data.setdefault(DOMAIN, {})[config_entry.entry_id]
     await bridge.async_cleanup()
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
+        hass.data[DOMAIN].pop(config_entry.entry_id)
 
 
     return unload_ok

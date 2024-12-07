@@ -82,18 +82,33 @@ class SynapseBridge(ApplicationAdapter):
 
     @callback
     def handle_heartbeat(self, event) -> None:
-        """Handle heartbeat events."""
+        """
+        Handle heartbeat events.
+        Marks the app back online & kicks off bg timer for healthcheck
+        """
         self._reset_heartbeat_timer()
         if self.online == True:
             return
-        entry = self.config_entry.entry_id
+
         if event is not None:
             hash = event.data.get("hash")
-            if entry not in hashDict or hash != hashDict[entry]:
-                hashDict[entry] = hash
-                self.logger.error("emit refresh")
-                self.hass.bus.async_fire(self.event_name("refresh"), entry)
+            self.detect_change(hash)
 
         self.logger.debug(f"{self.app_data.get("app")} restored heartbeat")
         self.online = True
         self.hass.bus.async_fire(self.event_name("health"))
+
+    def detect_change(self, hash: str) -> None:
+        """
+        Check for changes of the declared hash, which represents the current combination of entities
+        If app is declaring a different list, then we need to request that list and refresh
+
+        Effectively pushes the reload button on list change
+        """
+        entry_id = self.config_entry.entry_id
+        if entry_id not in hashDict or hash != hashDict[entry_id]:
+            hashDict[entry_id] = hash
+            self.logger.error("emit refresh")
+            self.hass.async_create_task(
+                self.hass.config_entries.async_reload(entry_id)
+            )

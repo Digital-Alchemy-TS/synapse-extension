@@ -37,10 +37,10 @@ class SynapseApplication:
 
 # #MARK: Entities
 PLATFORMS: list[str] = [
-    # Validated
+    # Working -
+    #
     "binary_sensor",
     "button",
-    "climate",
     "date",
     "datetime",
     "lock",
@@ -51,22 +51,28 @@ PLATFORMS: list[str] = [
     "switch",
     "text",
     "time",
-    "update",
-
-    # TODO
-    # "alarm_control_panel",
-    # "camera",
-    # "cover",
-    # "fan",
-    # "humidifier",
+    #
+    # High priority wishlist -
+    #
     # "image",
-    # "lawn_mower",
-    # "light",
     # "media_player",
     # "notify",
     # "remote",
-    # "siren",
     # "todo_list",
+    # "update",
+    #
+    # Low priority wishlist -
+    #
+    #
+    # "alarm_control_panel",
+    # "camera",
+    # "climate",
+    # "cover",
+    # "fan",
+    # "humidifier",
+    # "lawn_mower",
+    # "light",
+    # "siren",
     # "vacuum",
     # "valve",
     # "water_heater",
