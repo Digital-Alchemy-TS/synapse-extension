@@ -1,18 +1,17 @@
-"""Config flow for Digital Alchemy Synapse."""
-
 from __future__ import annotations
 from typing import Any
-import voluptuous as vol
-from homeassistant.components import ssdp
-from homeassistant.config_entries import ConfigFlow
 
-from homeassistant.const import CONF_NAME
-from homeassistant.data_entry_flow import FlowResult
-from .const import DOMAIN, EVENT_NAMESPACE
-from .bridge import SynapseApplication, hex_to_object
 import asyncio
 import logging
+import voluptuous as vol
 
+from homeassistant.components import ssdp
+from homeassistant.config_entries import ConfigFlow
+from homeassistant.const import CONF_NAME
+from homeassistant.data_entry_flow import FlowResult
+
+from .synapse.helpers import hex_to_object
+from .synapse.const import DOMAIN, EVENT_NAMESPACE, SynapseApplication, QUERY_TIMEOUT
 
 
 class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -25,9 +24,8 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
         """Initialize the Synapse flow."""
         self.application: SynapseApplication | None = None
         self.discovery_info: dict | None = None
-        self.logger = logging.getLogger(__name__)
         self.known_apps = []
-
+        self.logger = logging.getLogger(__name__)
 
     async def async_step_user(self, user_input=None):
         """Handle a flow initialized by the user."""
@@ -36,7 +34,7 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 selected_app_name = user_input[CONF_NAME]
-                selected_app_info = next(app for app in self.known_apps if app['app'] == selected_app_name)
+                selected_app_info = next(app for app in self.known_apps if app["app"] == selected_app_name)
 
                 await self.async_set_unique_id(selected_app_info.get("unique_id"))
                 self._abort_if_unique_id_configured()
@@ -48,7 +46,7 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
         # Get the list of known good things
         try:
             self.known_apps = await self.identify_all()
-            app_choices = {app['app']: app['title'] for app in self.known_apps}
+            app_choices = {app["app"]: app["title"] for app in self.known_apps}
         except Exception:
             errors["base"] = "unknown"
             app_choices = {}
@@ -61,31 +59,6 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({vol.Required(CONF_NAME): vol.In(app_choices)}),
             errors=errors,
         )
-
-    async def async_step_ssdp(self, discovery_info: ssdp.SsdpServiceInfo) -> FlowResult:
-        """Handle a flow initialized by SSDP discovery."""
-        self.discovery_info = discovery_info
-        try:
-            # application config data from ssdp payload
-            configuration_hex = discovery_info.upnp.get('configuration')
-
-            # convert hex -> binary -> json -> dict
-            info = hex_to_object(configuration_hex)
-
-            # store for later
-            self.application = info
-
-            # hass
-            id = info.get("unique_id")
-            await self.async_set_unique_id(f"{id}-ssdp")
-            self._abort_if_unique_id_configured()
-
-            # configuration confirmation prompt
-            self.context["title_placeholders"] = {"name": info["title"]}
-            return await self.async_step_confirm()
-
-        except Exception:  # pylint: disable=broad-except
-            return self.async_abort(reason="unknown_error")
 
     async def async_step_confirm(self, user_input=None):
         """Handle the confirmation step."""
@@ -110,7 +83,7 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
         self.hass.bus.async_fire(f"{EVENT_NAMESPACE}/discovery")
 
         # Allow half second for replies
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(QUERY_TIMEOUT)
 
         # Stop listening
         remove()

@@ -1,5 +1,5 @@
-from .bridge import SynapseBridge
-from .const import DOMAIN, SynapseCoverDefinition
+from .synapse.bridge import SynapseBridge
+from .synapse.const import DOMAIN, SynapseCoverDefinition
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback, HomeAssistant
@@ -11,7 +11,6 @@ import logging
 
 
 
-
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -19,20 +18,19 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_data.get("cover")
+    entities = bridge.app_data.get("cover")
     if entities is not None:
       async_add_entities(SynapseCover(hass, bridge, entity) for entity in entities)
-
 
 class SynapseCover(CoverEntity):
     def __init__(
         self,
         hass: HomeAssistant,
-        hub: SynapseBridge,
+        bridge: SynapseBridge,
         entity: SynapseCoverDefinition,
     ):
         self.hass = hass
-        self.bridge = hub
+        self.bridge = bridge
         self.entity = entity
         self.logger = logging.getLogger(__name__)
         self._listen()

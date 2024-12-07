@@ -12,15 +12,15 @@ class SynapseBaseEntity(Entity):
     def __init__(
         self,
         hass: HomeAssistant,
-        hub: SynapseBridge,
+        bridge: SynapseBridge,
         entity: SynapseBaseEntity
     ) -> None:
         """Init"""
         self.hass = hass
-        self.bridge = hub
+        self.bridge = bridge
         self.entity = entity
         self.logger = logging.getLogger(__name__)
-        self.device = hub.device
+        self.device = bridge.device
         self._listen()
 
     # common to all
@@ -76,7 +76,7 @@ class SynapseBaseEntity(Entity):
     def available(self):
         if self.entity.get("disabled") == True:
             return False
-        return self.bridge.connected()
+        return self.bridge.online
 
     def _listen(self):
         self.async_on_remove(

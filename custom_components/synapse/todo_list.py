@@ -5,9 +5,9 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.todolist import TodoListEntity
 
-from .base_entity import SynapseBaseEntity
-from .bridge import SynapseBridge
-from .const import DOMAIN, SynapseTodoListDefinition
+from .synapse.base_entity import SynapseBaseEntity
+from .synapse.bridge import SynapseBridge
+from .synapse.const import DOMAIN, SynapseTodoListDefinition
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -16,7 +16,7 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_data.get("todolist")
+    entities = bridge.app_data.get("todolist")
     if entities is not None:
       async_add_entities(SynapseTodoList(hass, bridge, entity) for entity in entities)
 
@@ -24,10 +24,10 @@ class SynapseTodoList(SynapseBaseEntity, TodoListEntity):
     def __init__(
         self,
         hass: HomeAssistant,
-        hub: SynapseBridge,
+        bridge: SynapseBridge,
         entity: SynapseTodoListDefinition,
     ):
-        super().__init__(hass, hub, entity)
+        super().__init__(hass, bridge, entity)
         self.logger = logging.getLogger(__name__)
 
     @property

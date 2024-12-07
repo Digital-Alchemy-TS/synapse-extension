@@ -5,9 +5,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback, HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .base_entity import SynapseBaseEntity
-from .bridge import SynapseBridge
-from .const import DOMAIN, SynapseSirenDefinition
+from .synapse.base_entity import SynapseBaseEntity
+from .synapse.bridge import SynapseBridge
+from .synapse.const import DOMAIN, SynapseSirenDefinition
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -16,19 +16,18 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_data.get("siren")
+    entities = bridge.app_data.get("siren")
     if entities is not None:
       async_add_entities(SynapseSiren(hass, bridge, entity) for entity in entities)
-
 
 class SynapseSiren(SynapseBaseEntity, SirenEntity):
     def __init__(
         self,
         hass: HomeAssistant,
-        hub: SynapseBridge,
+        bridge: SynapseBridge,
         entity: SynapseSirenDefinition,
     ):
-        super().__init__(hass, hub, entity)
+        super().__init__(hass, bridge, entity)
         self.logger = logging.getLogger(__name__)
 
     @property

@@ -5,9 +5,9 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.vacuum import VacuumEntity
 
-from .base_entity import SynapseBaseEntity
-from .bridge import SynapseBridge
-from .const import DOMAIN, SynapseVacuumDefinition
+from .synapse.base_entity import SynapseBaseEntity
+from .synapse.bridge import SynapseBridge
+from .synapse.const import DOMAIN, SynapseVacuumDefinition
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -16,7 +16,7 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.config_data.get("vacuum")
+    entities = bridge.app_data.get("vacuum")
     if entities is not None:
       async_add_entities(SynapseVacuum(hass, bridge, entity) for entity in entities)
 
@@ -24,10 +24,10 @@ class SynapseVacuum(SynapseBaseEntity, VacuumEntity):
     def __init__(
         self,
         hass: HomeAssistant,
-        hub: SynapseBridge,
+        bridge: SynapseBridge,
         entity: SynapseVacuumDefinition,
     ):
-        super().__init__(hass, hub, entity)
+        super().__init__(hass, bridge, entity)
         self.logger = logging.getLogger(__name__)
 
     @property
