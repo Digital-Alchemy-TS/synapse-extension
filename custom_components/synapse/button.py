@@ -9,7 +9,6 @@ from .synapse.base_entity import SynapseBaseEntity
 from .synapse.bridge import SynapseBridge
 from .synapse.const import DOMAIN, SynapseButtonDefinition
 
-logger = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,

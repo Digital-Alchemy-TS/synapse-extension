@@ -25,7 +25,13 @@ class SynapseHealthSensor(BinarySensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return self.bridge.device
+        return self.bridge.primary_device
+
+    @property
+    def icon(self):
+        if self.bridge.online:
+            return "mdi:server"
+        return "mdi:server-outline"
 
     @property
     def entity_category(self):

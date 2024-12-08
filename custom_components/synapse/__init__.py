@@ -6,6 +6,8 @@ from homeassistant.core import HomeAssistant
 from .synapse.bridge import SynapseBridge
 from .synapse.const import DOMAIN, PLATFORMS
 
+logger = logging.getLogger(__name__)
+
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Set up Synapse app from a config entry."""
     domain_data = hass.data.setdefault(DOMAIN, {})

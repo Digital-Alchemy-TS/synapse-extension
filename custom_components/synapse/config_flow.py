@@ -1,3 +1,28 @@
+"""
+# Digital Alchemy Synapse config flow
+
+This flow is takes a unique strategy towards app discovery because of what it is intented to integrate with.
+All of the target "devices" are nodejs applications that are ALREADY CONNECTED via websocket to this Home Assistant instance.
+No authentication or configuration steps required here, those have all been handled elsewhere already.
+
+Interactions between this Python integration and the target application take place over the HA event bus.
+Discovery is performed via this workflow:
+
+1. emit a discovery request message
+2. wait short duration & aggregate replies
+3. display list to user (or error if nothing replied)
+
+## Discovery flows
+
+Currently there is no discovery flow in the same way as ssdp.
+The above config flow is pretty straightforward, but issues/concerns that came up in original implementation attempt:
+
+- unclear if there is a code path to triggering discovery via event bus message
+- the discovery should not trigger on ha instances app is not connected to (prod vs dev instances)
+- should not involve additional dependencies on app side (such as requiring a webserver)
+
+Would be nice to find a solution to this as a future upgrade.
+"""
 from __future__ import annotations
 from typing import Any
 
@@ -5,10 +30,8 @@ import asyncio
 import logging
 import voluptuous as vol
 
-from homeassistant.components import ssdp
 from homeassistant.config_entries import ConfigFlow
 from homeassistant.const import CONF_NAME
-from homeassistant.data_entry_flow import FlowResult
 
 from .synapse.helpers import hex_to_object
 from .synapse.const import DOMAIN, EVENT_NAMESPACE, SynapseApplication, QUERY_TIMEOUT
@@ -72,7 +95,10 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def identify_all(self):
-        """Request all connected apps identify themselves"""
+        """
+        Request all connected apps identify themselves
+        Already registered apps will ignore the request
+        """
         # set up listener
         replies = []
         def handle_event(event):

@@ -8,7 +8,7 @@ from .const import SynapseApplication
 def hex_to_object(hex_str: str) -> SynapseApplication:
     """
     Consume a gzipped json string, return an object.
-    Can be any object, will only be used for this single return type
+    Can be any object but will only be used for this single return type
     """
     compressed_data = binascii.unhexlify(hex_str)
     with gzip.GzipFile(fileobj=io.BytesIO(compressed_data)) as f:
