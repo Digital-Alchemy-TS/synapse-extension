@@ -11,10 +11,11 @@ This library works with [@digital-alchemy/synapse](https://github.com/Digital-Al
 
 1. Ensure you have [HACS](https://hacs.xyz/) installed in Home Assistant.
 2. Open HACS from the Home Assistant sidebar.
-3. Navigate to "Integrations" > "+ Explore & add repositories."
-4. Search for "Digital Alchemy Synapse" and select it from the list.
-5. Click "Install this repository in HACS."
-6. Restart Home Assistant to apply the changes.
+3. In the top/right corner menu of the HACS screen click "Custom repositories."
+4. Add github repository: `https://github.com/Digital-Alchemy-TS/synapse-extension`
+5. For type select "Integration."
+6. Click ADD. Then click Cancel to dismiss window.
+7. Restart Home Assistant to apply the changes.
 
 ### 📁 Manual Installation
 
