@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import List, Optional
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -17,7 +20,7 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.app_data.get("binary_sensor")
+    entities: List[SynapseBinarySensorDefinition] = bridge.app_data.get("binary_sensor", [])
 
     if entities is not None:
       async_add_entities(SynapseBinarySensor(hass, bridge, entity) for entity in entities)
@@ -32,14 +35,14 @@ class SynapseBinarySensor(SynapseBaseEntity, BinarySensorEntity):
         hass: HomeAssistant,
         bridge: SynapseBridge,
         entity: SynapseBinarySensorDefinition,
-    ):
+    ) -> None:
         super().__init__(hass, bridge, entity)
-        self.logger = logging.getLogger(__name__)
+        self.logger: logging.Logger = logging.getLogger(__name__)
 
     @property
-    def device_class(self):
+    def device_class(self) -> Optional[str]:
         return self.entity.get("device_class")
 
     @property
-    def is_on(self):
-        return self.entity.get("is_on")
+    def is_on(self) -> bool:
+        return self.entity.get("is_on", False)

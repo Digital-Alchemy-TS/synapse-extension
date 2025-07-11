@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import Any, List, Optional
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
@@ -16,7 +19,7 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.app_data.get("switch")
+    entities: List[SynapseSwitchDefinition] = bridge.app_data.get("switch", [])
     if entities is not None:
       async_add_entities(SynapseSwitch(hass, bridge, entity) for entity in entities)
 
@@ -26,34 +29,34 @@ class SynapseSwitch(SynapseBaseEntity, SwitchEntity):
         hass: HomeAssistant,
         bridge: SynapseBridge,
         entity: SynapseSwitchDefinition,
-    ):
+    ) -> None:
         super().__init__(hass, bridge, entity)
-        self.logger = logging.getLogger(__name__)
+        self.logger: logging.Logger = logging.getLogger(__name__)
 
     @property
-    def is_on(self):
-        return self.entity.get("is_on")
+    def is_on(self) -> bool:
+        return self.entity.get("is_on", False)
 
     @property
-    def device_class(self):
+    def device_class(self) -> Optional[str]:
         return self.entity.get("device_class")
 
     @callback
-    async def async_turn_on(self, **kwargs) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Handle the switch press."""
         self.hass.bus.async_fire(
             self.bridge.event_name("turn_on"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
 
     @callback
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Handle the switch press."""
         self.hass.bus.async_fire(
             self.bridge.event_name("turn_off"), {"unique_id": self.entity.get("unique_id"), **kwargs}
         )
 
     @callback
-    async def async_turn_toggle(self, **kwargs) -> None:
+    async def async_turn_toggle(self, **kwargs: Any) -> None:
         """Handle the switch press."""
         self.hass.bus.async_fire(
             self.bridge.event_name("toggle"), {"unique_id": self.entity.get("unique_id"), **kwargs}

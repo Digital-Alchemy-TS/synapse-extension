@@ -24,7 +24,7 @@ The above config flow is pretty straightforward, but issues/concerns that came u
 Would be nice to find a solution to this as a future upgrade.
 """
 from __future__ import annotations
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 import asyncio
 import logging
@@ -45,14 +45,14 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         """Initialize the Synapse flow."""
-        self.application: SynapseApplication | None = None
-        self.discovery_info: dict | None = None
-        self.known_apps = []
-        self.logger = logging.getLogger(__name__)
+        self.application: Optional[SynapseApplication] = None
+        self.discovery_info: Optional[Dict[str, Any]] = None
+        self.known_apps: List[SynapseApplication] = []
+        self.logger: logging.Logger = logging.getLogger(__name__)
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Handle a flow initialized by the user."""
-        errors = {}
+        errors: Dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -83,7 +83,7 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_confirm(self, user_input=None):
+    async def async_step_confirm(self, user_input: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Handle the confirmation step."""
         if user_input is not None:
             return self.async_create_entry(title=self.application["title"], data=self.application)
@@ -94,14 +94,14 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({}),
         )
 
-    async def identify_all(self):
+    async def identify_all(self) -> List[SynapseApplication]:
         """
         Request all connected apps identify themselves
         Already registered apps will ignore the request
         """
         # set up listener
-        replies = []
-        def handle_event(event):
+        replies: List[str] = []
+        def handle_event(event: Any) -> None:
             replies.append(event.data.get("compressed"))
         remove = self.hass.bus.async_listen(f"{EVENT_NAMESPACE}/identify", handle_event)
 

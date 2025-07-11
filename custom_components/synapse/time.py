@@ -1,6 +1,9 @@
-import logging
+from __future__ import annotations
 
+import logging
 from datetime import time
+from typing import Any, List, Optional
+
 from homeassistant.components.time import TimeEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback, HomeAssistant
@@ -17,7 +20,7 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.app_data.get("time")
+    entities: List[SynapseTimeDefinition] = bridge.app_data.get("time", [])
     if entities is not None:
       async_add_entities(SynapseTime(hass, bridge, entity) for entity in entities)
 
@@ -27,16 +30,19 @@ class SynapseTime(SynapseBaseEntity, TimeEntity):
         hass: HomeAssistant,
         bridge: SynapseBridge,
         entity: SynapseTimeDefinition,
-    ):
+    ) -> None:
         super().__init__(hass, bridge, entity)
-        self.logger = logging.getLogger(__name__)
+        self.logger: logging.Logger = logging.getLogger(__name__)
 
     @property
-    def native_value(self):
-        return time.fromisoformat(self.entity.get("native_value"))
+    def native_value(self) -> Optional[time]:
+        native_value = self.entity.get("native_value")
+        if native_value is not None:
+            return time.fromisoformat(native_value)
+        return None
 
     @callback
-    async def async_set_value(self, value: time, **kwargs) -> None:
+    async def async_set_value(self, value: time, **kwargs: Any) -> None:
         """Proxy the request to set the value."""
         self.hass.bus.async_fire(
             self.bridge.event_name("set_value"),

@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import Any, List, Optional
 
 from homeassistant.components.text import TextEntity
 from homeassistant.config_entries import ConfigEntry
@@ -16,7 +19,7 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.app_data.get("text")
+    entities: List[SynapseTextDefinition] = bridge.app_data.get("text", [])
     if entities is not None:
       async_add_entities(SynapseText(hass, bridge, entity) for entity in entities)
 
@@ -26,16 +29,16 @@ class SynapseText(SynapseBaseEntity, TextEntity):
         hass: HomeAssistant,
         bridge: SynapseBridge,
         entity: SynapseTextDefinition,
-    ):
+    ) -> None:
         super().__init__(hass, bridge, entity)
-        self.logger = logging.getLogger(__name__)
+        self.logger: logging.Logger = logging.getLogger(__name__)
 
     @property
-    def native_value(self):
+    def native_value(self) -> Optional[str]:
         return self.entity.get("native_value")
 
     @callback
-    async def async_set_value(self, value: str, **kwargs) -> None:
+    async def async_set_value(self, value: str, **kwargs: Any) -> None:
         """Proxy the request to set the value."""
         self.hass.bus.async_fire(
             self.bridge.event_name("set_value"),

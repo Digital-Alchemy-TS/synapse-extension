@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import List
 
 from homeassistant.components.scene import Scene as SceneEntity
 from homeassistant.config_entries import ConfigEntry
@@ -16,7 +19,7 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.app_data.get("scene")
+    entities: List[SynapseSceneDefinition] = bridge.app_data.get("scene", [])
     if entities is not None:
       async_add_entities(SynapseScene(hass, bridge, entity) for entity in entities)
 
@@ -26,9 +29,9 @@ class SynapseScene(SynapseBaseEntity, SceneEntity):
         hass: HomeAssistant,
         bridge: SynapseBridge,
         entity: SynapseSceneDefinition,
-    ):
+    ) -> None:
         super().__init__(hass, bridge, entity)
-        self.logger = logging.getLogger(__name__)
+        self.logger: logging.Logger = logging.getLogger(__name__)
 
     @callback
     async def async_activate(self) -> None:

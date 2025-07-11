@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import Any, List, Optional
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
@@ -16,7 +19,7 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.app_data.get("button")
+    entities: List[SynapseButtonDefinition] = bridge.app_data.get("button", [])
     if entities is not None:
       async_add_entities(SynapseButton(hass, bridge, entity) for entity in entities)
 
@@ -26,16 +29,16 @@ class SynapseButton(SynapseBaseEntity, ButtonEntity):
         hass: HomeAssistant,
         bridge: SynapseBridge,
         entity: SynapseButtonDefinition,
-    ):
+    ) -> None:
         super().__init__(hass, bridge, entity)
-        self.logger = logging.getLogger(__name__)
+        self.logger: logging.Logger = logging.getLogger(__name__)
 
     @property
-    def device_class(self):
+    def device_class(self) -> Optional[str]:
         return self.entity.get("device_class")
 
     @callback
-    async def async_press(self, **kwargs) -> None:
+    async def async_press(self, **kwargs: Any) -> None:
         """Handle the button press."""
         self.hass.bus.async_fire(
             self.bridge.event_name("press"),

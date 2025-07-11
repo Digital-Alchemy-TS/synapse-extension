@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import Dict
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -6,12 +9,12 @@ from homeassistant.core import HomeAssistant
 from .synapse.bridge import SynapseBridge
 from .synapse.const import DOMAIN, PLATFORMS
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Set up Synapse app from a config entry."""
-    domain_data = hass.data.setdefault(DOMAIN, {})
-    bridge = None
+    domain_data: Dict[str, SynapseBridge] = hass.data.setdefault(DOMAIN, {})
+    bridge: SynapseBridge | None = None
 
     if config_entry.entry_id not in domain_data:
         bridge = SynapseBridge(hass, config_entry)
@@ -37,6 +40,5 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
     unload_ok = await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(config_entry.entry_id)
-
 
     return unload_ok

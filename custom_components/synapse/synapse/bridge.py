@@ -48,8 +48,11 @@ Reasons may include:
 The app hash represents the current list of entities reduced to a sha256.
 If the list of entities changes at runtime, the hash will change and the integration will request a reload to process update.
 """
+from __future__ import annotations
+
 import asyncio
 import logging
+from typing import Any, Dict, List, Optional
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -77,16 +80,9 @@ from .const import (
     QUERY_TIMEOUT,
     RETRIES,
     RETRY_DELAY,
+    APP_OFFLINE_DELAY,
 )
 from .helpers import hex_to_object
-import logging
-
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import callback, HomeAssistant
-
-from .const import DOMAIN, EVENT_NAMESPACE, APP_OFFLINE_DELAY
-
-hashDict = {}
 
 
 class SynapseBridge:
@@ -99,29 +95,31 @@ class SynapseBridge:
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
         """Initialize the bridge"""
 
-        self.logger = logging.getLogger(__name__)
-        self.config_entry = config_entry
-        self.primary_device = None
-        self.via_primary_device = None
-        self.hass = hass
+        self.logger: logging.Logger = logging.getLogger(__name__)
+        self.config_entry: ConfigEntry = config_entry
+        self.primary_device: Optional[DeviceInfo] = None
+        self.via_primary_device: Dict[str, DeviceInfo] = {}
+        self.hass: HomeAssistant = hass
         self.app_data: SynapseApplication = config_entry.data
-        self.app_name = self.app_data.get("app")
-        self.metadata_unique_id = self.app_data.get("unique_id")
+        self.app_name: str = self.app_data.get("app", "")
+        self.metadata_unique_id: str = self.app_data.get("unique_id", "")
+        self._hash_dict: Dict[str, str] = {}  # Instance-based state instead of global
         hass.data.setdefault(DOMAIN, {})[self.metadata_unique_id] = self
 
         self.logger.debug(f"{self.app_name} init bridge")
 
-        self.namespace = EVENT_NAMESPACE
-        self.online = False
-        self._heartbeat_timer = None
-        self._removals = []
+        self.namespace: str = EVENT_NAMESPACE
+        self.online: bool = False
+        self._heartbeat_timer: Optional[asyncio.TimerHandle] = None
+        self._removals: List[callable] = []
 
         self._listen()
 
     async def async_cleanup(self) -> None:
         """Called when tearing down the bridge, clean up resources and prepare to go away"""
         self.logger.info(f"{self.app_name} cleanup bridge")
-        self._heartbeat_timer.cancel()
+        if self._heartbeat_timer:
+            self._heartbeat_timer.cancel()
         for remove in self._removals:
             remove()
 
@@ -149,7 +147,7 @@ class SynapseBridge:
         self._reset_heartbeat_timer()
 
     @callback
-    def _handle_explicit_shutdown(self, event) -> None:
+    def _handle_explicit_shutdown(self, event: Any) -> None:
         """Explicit shutdown events emitted by app"""
         self.logger.info(f"{self.app_name} offline notification")
         # Update entity availability
@@ -161,7 +159,7 @@ class SynapseBridge:
             self._heartbeat_timer.cancel()
 
     @callback
-    def _mark_as_dead(self, event=None) -> None:
+    def _mark_as_dead(self, event: Optional[Any] = None) -> None:
         """Timeout on heartbeat"""
         if self.online == False:
             return
@@ -177,7 +175,7 @@ class SynapseBridge:
         self._heartbeat_timer = self.hass.loop.call_later(APP_OFFLINE_DELAY, self._mark_as_dead)
 
     @callback
-    def handle_heartbeat(self, event) -> None:
+    def handle_heartbeat(self, event: Any) -> None:
         """Handle heartbeat & "coming back online" messages"""
         # Always (re) start the timer waiting for the next heartbeat
         self._reset_heartbeat_timer()
@@ -189,61 +187,54 @@ class SynapseBridge:
         self.logger.info(f"{self.app_name} restored contact")
 
         if event is not None and self.app_data is not None:
-            if self.metadata_unique_id in hashDict:
+            if self.metadata_unique_id in self._hash_dict:
                 entry_id = self.config_entry.entry_id
 
                 incoming_hash = event.data.get("hash")
-                if incoming_hash != hashDict[self.metadata_unique_id]:
-                    self.logger.error(f"async_reload {incoming_hash} != {hashDict[self.metadata_unique_id]}")
+                if incoming_hash != self._hash_dict[self.metadata_unique_id]:
+                    self.logger.error(f"async_reload {incoming_hash} != {self._hash_dict[self.metadata_unique_id]}")
                     self.hass.async_create_task(
                         self.hass.config_entries.async_reload(entry_id)
                     )
-                    self.logger.error("/async_reload")
 
+        # this counts as a heartbeat
         self.online = True
         self.hass.bus.async_fire(self.event_name("health"))
 
+    def format_device_info(self, device: Optional[SynapseMetadata] = None) -> Dict[str, Any]:
+        """Translate between synapse data objects and hass device info."""
+        if device is None:
+            device = self.app_data.get("device")
 
-    def format_device_info(self, device = None):
-        """Translate between synapse data objects and hass device info"""
-        device = device or self.app_data.get("device")
-        return {
-            ATTR_CONFIGURATION_URL: device.get("configuration_url"),
-            ATTR_HW_VERSION: device.get("hw_version"),
-            ATTR_IDENTIFIERS: {
-                (DOMAIN, device.get("unique_id") or self.metadata_unique_id),
-            },
-            ATTR_MANUFACTURER: device.get("manufacturer"),
-            ATTR_MODEL: device.get("model"),
-            ATTR_NAME: device.get("name"),
-            ATTR_SERIAL_NUMBER: device.get("serial_number"),
-            ATTR_SUGGESTED_AREA: device.get("suggested_area"),
-            ATTR_SW_VERSION: device.get("sw_version"),
-        }
+        identifiers = {(DOMAIN, device.get("unique_id"))}
+        connections = set()
+
+        return DeviceInfo(
+            identifiers=identifiers,
+            connections=connections,
+            name=device.get("name"),
+            manufacturer=device.get("manufacturer") or device.get("default_manufacturer"),
+            model=device.get("model") or device.get("default_model"),
+            hw_version=device.get("hw_version"),
+            sw_version=device.get("sw_version"),
+            serial_number=device.get("serial_number"),
+            suggested_area=device.get("suggested_area"),
+            configuration_url=device.get("configuration_url"),
+        )
 
     async def async_reload(self) -> None:
-        """Attach reload call to gather new metadata & update local info"""
+        """Reload the bridge and update local info"""
         self.logger.debug(f"{self.app_name} request reload")
 
-        # retry a few times - apps attempt reconnect on an interval
-        # recent boots will have a short delay before the app can successfully reconnect
         data = await self._async_fetch_state(self.app_name)
-        for x in range(0, RETRIES):
-            if data is not None:
-                self.logger.info(f"{self.app_name} reload success")
-                break
-            self.logger.warning(f"({x}/{RETRIES}) {self.app_name} reload wait {RETRY_DELAY}s & retry")
-            await asyncio.sleep(RETRY_DELAY)
-            data = await self._async_fetch_state(self.app_name)
-
         if data is None:
             self.logger.warning("no response, is app connected?")
             return
 
         # Handle incoming data
         self.app_data = data
-        hashDict[self.metadata_unique_id] = data.get("hash")
-        self.app_name = self.app_data.get("app")
+        self._hash_dict[self.metadata_unique_id] = data.get("hash")
+        self.app_name = self.app_data.get("app", "")
         self._refresh_devices()
         self._refresh_entities()
 
@@ -251,9 +242,7 @@ class SynapseBridge:
         self.online = True
 
     def _refresh_devices(self) -> None:
-        """Parse through the incoming payload, and set up devices to match"""
-        self.via_primary_device = {}
-        expected_device_ids = []
+        """Refresh device registry entries"""
         device_registry = dr.async_get(self.hass)
 
         # create / update base device
@@ -263,7 +252,7 @@ class SynapseBridge:
             config_entry_id=self.config_entry.entry_id,
             **params
         )
-        expected_device_ids.append(device.id)
+        expected_device_ids = [device.id]
 
         # if the app declares secondary devices, register them also
         # use via_device to create an association with the base
@@ -271,7 +260,7 @@ class SynapseBridge:
 
 
         for device in secondary_devices:
-            self.logger.debug(f"{self.app_name} secondary device: {device.get("name")}")
+            self.logger.debug(f"{self.app_name} secondary device: {device.get('name')}")
 
             # create params
             params = self.format_device_info(device)
@@ -330,14 +319,14 @@ class SynapseBridge:
             return None
         return hex_to_object(hex_str)
 
-    async def _wait_for_reload_reply(self, event_name) -> str:
+    async def _wait_for_reload_reply(self, event_name: str) -> Optional[str]:
         """
         Wait for the app to reply, then return.
         Contains short timeout to race reply and return None
         """
-        future = asyncio.Future()
+        future: asyncio.Future[str] = asyncio.Future()
         @callback
-        def handle_event(event):
+        def handle_event(event: Any) -> None:
             if not future.done():
                 future.set_result(event.data["compressed"]) # <<< success value
         self.hass.loop.call_soon_threadsafe(

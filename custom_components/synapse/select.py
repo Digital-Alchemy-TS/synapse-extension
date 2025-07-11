@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from typing import Any, List, Optional
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
@@ -16,7 +19,7 @@ async def async_setup_entry(
 ) -> None:
     """Setup the router platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities = bridge.app_data.get("select")
+    entities: List[SynapseSelectDefinition] = bridge.app_data.get("select", [])
     if entities is not None:
       async_add_entities(SynapseSelect(hass, bridge, entity) for entity in entities)
 
@@ -26,20 +29,20 @@ class SynapseSelect(SynapseBaseEntity, SelectEntity):
         hass: HomeAssistant,
         bridge: SynapseBridge,
         entity: SynapseSelectDefinition,
-    ):
+    ) -> None:
         super().__init__(hass, bridge, entity)
-        self.logger = logging.getLogger(__name__)
+        self.logger: logging.Logger = logging.getLogger(__name__)
 
     @property
-    def current_option(self):
+    def current_option(self) -> Optional[str]:
         return self.entity.get("current_option")
 
     @property
-    def options(self):
-        return self.entity.get("options")
+    def options(self) -> List[str]:
+        return self.entity.get("options", [])
 
     @callback
-    async def async_select_option(self, option: str, **kwargs) -> None:
+    async def async_select_option(self, option: str, **kwargs: Any) -> None:
         """Proxy the request to select an option."""
         self.hass.bus.async_fire(
             self.bridge.event_name("select_option"),
