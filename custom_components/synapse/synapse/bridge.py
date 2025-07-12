@@ -53,6 +53,8 @@ from homeassistant.core import callback, HomeAssistant
 from homeassistant.helpers import entity_registry as er, device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 
+from homeassistant.components import websocket_api
+
 from .const import (
     DOMAIN,
     PLATFORMS,
@@ -142,7 +144,7 @@ class SynapseBridge:
 
     async def send_to_app(self, unique_id: str, message: Dict[str, Any]) -> bool:
         """
-        Send a WebSocket message to a connected app.
+        Send a WebSocket message to a connected app using the correct Home Assistant WebSocket API protocol.
 
         Args:
             unique_id: The unique identifier for the app
@@ -157,12 +159,9 @@ class SynapseBridge:
 
         try:
             connection = self._websocket_connections[unique_id]
-            # Add a unique message ID for tracking
-            import uuid
-            message["id"] = str(uuid.uuid4())
-
-            await connection.send_json(message)
-            self.logger.debug(f"Sent message to {unique_id}: {message.get('type', 'unknown')}")
+            msg_id = self._next_message_id()
+            connection.send_message(websocket_api.result_message(msg_id, message))
+            self.logger.debug(f"Sent message to {unique_id}: {message.get('type', 'unknown')} (id={msg_id})")
             return True
         except Exception as e:
             self.logger.error(f"Failed to send message to {unique_id}: {e}")
