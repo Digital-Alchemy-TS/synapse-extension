@@ -703,9 +703,34 @@ class SynapseBridge:
         """Reload the bridge and update local info"""
         self.logger.debug(f"{self.app_name} request reload")
 
-        # TODO: Implement reload logic for WebSocket communication
-        # For now, just log that reload was requested
-        self.logger.info(f"{self.app_name} reload requested - WebSocket implementation pending")
+        # Check if we have an active WebSocket connection
+        if not self.is_unique_id_connected(self.metadata_unique_id):
+            self.logger.warning(f"{self.app_name} no active WebSocket connection for reload")
+            # Still mark as online since this is a manual reload request
+            self.online = True
+            return
+
+        try:
+            # Request configuration update from the app
+            self.logger.info(f"{self.app_name} requesting configuration update for reload")
+
+            # Send configuration request to the app
+            request_message = {
+                "type": "event",
+                "event_type": "synapse/request_configuration"
+            }
+
+            success = await self.send_to_app(self.metadata_unique_id, request_message)
+
+            if success:
+                self.logger.info(f"{self.app_name} configuration request sent successfully")
+                # The app should respond with a synapse/update_configuration command
+                # which will be handled by handle_configuration_update()
+            else:
+                self.logger.warning(f"{self.app_name} failed to send configuration request")
+
+        except Exception as e:
+            self.logger.error(f"{self.app_name} error during reload: {e}")
 
         # this counts as a heartbeat
         self.online = True

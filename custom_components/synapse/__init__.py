@@ -4,7 +4,8 @@ import logging
 from typing import Dict
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import service
 
 from .synapse.bridge import SynapseBridge
 from .synapse.const import DOMAIN, PLATFORMS
@@ -16,6 +17,28 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Synapse component."""
     # Register WebSocket command handlers
     register_websocket_handlers(hass)
+
+    # Register service handlers
+    async def async_handle_reload(call: ServiceCall) -> None:
+        """Handle the reload service call."""
+        app_name = call.data.get("app")
+
+        if app_name:
+            # Target specific app
+            for entry_id, bridge in hass.data.get(DOMAIN, {}).items():
+                if bridge.app_name == app_name:
+                    logger.info(f"Reloading specific app: {app_name}")
+                    await bridge.async_reload()
+                    return
+            logger.warning(f"App '{app_name}' not found for reload")
+        else:
+            # Target all apps
+            logger.info("Reloading all connected apps")
+            for entry_id, bridge in hass.data.get(DOMAIN, {}).items():
+                await bridge.async_reload()
+
+    hass.services.async_register(DOMAIN, "reload", async_handle_reload)
+
     return True
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
