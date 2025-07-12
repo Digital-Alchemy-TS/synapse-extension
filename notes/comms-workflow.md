@@ -4,6 +4,216 @@
 
 This document details the complete communication workflow between NodeJS Synapse applications and the Home Assistant Synapse extension. The workflow uses WebSocket API for bidirectional communication and implements a hash-based synchronization system.
 
+## 🔄 WebSocket Message ID Handling
+
+### Message ID Flow and Response Expectations
+
+```mermaid
+sequenceDiagram
+    participant App as NodeJS App
+    participant WS as WebSocket API
+    participant Bridge as Synapse Bridge
+    participant Registry as Entity Registry
+
+    Note over App: App initiates request with ID
+    App->>WS: {id: 1, type: "synapse/register", unique_id: "app1", app_metadata: {...}}
+    WS->>Bridge: Forward registration request
+    Bridge->>Bridge: Process registration
+    Bridge->>Registry: Update entity registry
+    Registry->>Bridge: Registration complete
+    Bridge->>WS: Return success response with SAME ID
+    WS->>App: {id: 1, type: "result", success: true, result: {...}}
+
+    Note over App: App sends heartbeat with ID
+    App->>WS: {id: 2, type: "synapse/heartbeat", hash: "abc123"}
+    WS->>Bridge: Forward heartbeat
+    Bridge->>Bridge: Check hash drift
+    alt Hash changed
+        Bridge->>WS: Send push notification (NO ID needed)
+        WS->>App: {type: "event", event_type: "synapse/request_configuration"}
+        App->>WS: {id: 3, type: "synapse/update_configuration", configuration: {...}}
+        WS->>Bridge: Forward configuration update
+        Bridge->>WS: Return response with ID 3
+        WS->>App: {id: 3, type: "result", success: true, result: {...}}
+    else Hash unchanged
+        Bridge->>WS: Return heartbeat response with SAME ID
+        WS->>App: {id: 2, type: "result", success: true, result: {...}}
+    end
+
+    Note over App: Bridge sends unsolicited message
+    Bridge->>WS: Send push notification (NO ID needed)
+    WS->>App: {type: "event", event_type: "synapse/going_offline"}
+```
+
+### Message ID Rules and Expectations
+
+#### **Request-Response Pattern (App → Home Assistant)**
+When the NodeJS app sends a message to Home Assistant:
+
+1. **App assigns ID**: The app generates and assigns a unique integer ID to each outgoing message
+2. **Home Assistant responds**: Home Assistant must respond with the **exact same ID** in the response
+3. **ID correlation**: The app uses this ID to match responses to their original requests
+
+```typescript
+// App side - sending request
+const messageId = this.nextMessageId();
+const request = {
+  id: messageId,
+  type: "synapse/register",
+  unique_id: "my_app",
+  app_metadata: {...}
+};
+this.websocket.send(JSON.stringify(request));
+
+// App side - handling response
+this.websocket.onmessage = (event) => {
+  const response = JSON.parse(event.data);
+  if (response.id === messageId) {
+    // This is the response to our request
+    handleRegistrationResponse(response);
+  }
+};
+```
+
+#### **Push Notification Pattern (Home Assistant → App)**
+When Home Assistant needs to send an unsolicited message to the app:
+
+1. **No ID required**: Push notifications don't need IDs because they're not responses to requests
+2. **Event format**: Use Home Assistant's event format for unsolicited messages
+3. **App handles**: The app listens for these events and handles them appropriately
+
+```python
+# Bridge side - sending push notification
+async def send_configuration_request(self, unique_id: str) -> bool:
+    """Send configuration request to app (push notification)."""
+    message = {
+        "type": "event",
+        "event_type": "synapse/request_configuration",
+        "data": {
+            "unique_id": unique_id,
+            "reason": "hash_drift_detected"
+        }
+    }
+    return await self.send_to_app(unique_id, message)
+```
+
+#### **Response Format Requirements**
+
+**Successful Response:**
+```json
+{
+  "id": 123,
+  "type": "result",
+  "success": true,
+  "result": {
+    "success": true,
+    "registered": true,
+    "message": "Registration successful"
+  }
+}
+```
+
+**Error Response:**
+```json
+{
+  "id": 123,
+  "type": "result",
+  "success": false,
+  "error": {
+    "code": "already_connected",
+    "message": "Unique ID already connected"
+  }
+}
+```
+
+**Push Notification:**
+```json
+{
+  "type": "event",
+  "event_type": "synapse/request_configuration",
+  "data": {
+    "unique_id": "app1",
+    "reason": "hash_drift_detected"
+  }
+}
+```
+
+### Implementation Implications
+
+#### **Current Issue with `_next_message_id()`**
+The current implementation incorrectly tries to use `websocket_api.result_message(msg_id, message)` for push notifications from Home Assistant to the app. This is wrong because:
+
+1. **`result_message` is for responses**: It's meant to respond to requests from the app
+2. **Push notifications don't need IDs**: They're unsolicited messages, not responses
+3. **Wrong direction**: The bridge shouldn't be generating IDs for messages to the app
+
+#### **Correct Implementation**
+```python
+# WRONG - Don't do this for push notifications
+async def send_to_app(self, unique_id: str, message: Dict[str, Any]) -> bool:
+    msg_id = self._next_message_id()  # ❌ Not needed for push notifications
+    connection.send_message(websocket_api.result_message(msg_id, message))  # ❌ Wrong format
+
+# CORRECT - For push notifications
+async def send_to_app(self, unique_id: str, message: Dict[str, Any]) -> bool:
+    connection.send_message(websocket_api.event_message(message))  # ✅ Correct format
+```
+
+#### **Message Flow Summary**
+
+| Direction | Message Type | ID Required | Format | Purpose |
+|-----------|-------------|-------------|---------|---------|
+| **App → HA** | Request | ✅ Yes | `{id: X, type: "command", ...}` | App sends command |
+| **HA → App** | Response | ✅ Yes | `{id: X, type: "result", ...}` | HA responds to request |
+| **HA → App** | Push Notification | ❌ No | `{type: "event", event_type: "...", data: {...}}` | HA sends unsolicited message |
+
+### Error Handling for Message IDs
+
+#### **Missing Response**
+If the app doesn't receive a response with the expected ID within a timeout period:
+```typescript
+// App side timeout handling
+const timeout = setTimeout(() => {
+  console.error(`No response received for message ID ${messageId}`);
+  // Handle timeout - retry, fail, etc.
+}, 5000);
+```
+
+#### **Duplicate IDs**
+The app should ensure unique IDs across all outgoing messages:
+```typescript
+class WebSocketClient {
+  private messageIdCounter = 0;
+
+  private nextMessageId(): number {
+    return ++this.messageIdCounter;
+  }
+}
+```
+
+#### **Invalid Response Format**
+Handle malformed responses gracefully:
+```typescript
+this.websocket.onmessage = (event) => {
+  try {
+    const response = JSON.parse(event.data);
+
+    if (!response.id) {
+      console.warn('Response missing ID:', response);
+      return;
+    }
+
+    if (response.type === 'result') {
+      this.handleResultResponse(response);
+    } else if (response.type === 'event') {
+      this.handleEventResponse(response);
+    }
+  } catch (error) {
+    console.error('Failed to parse response:', error);
+  }
+};
+```
+
 ## 🔄 Connection & Registration Flow
 
 ### Initial Connection Sequence

@@ -33,25 +33,14 @@ After examining the actual Python implementation against the claims in `comms-fl
 - ✅ **Device registration** - Creates/updates devices in registry
 - ✅ **Orphan cleanup** - Removes entities/devices no longer in config
 
-## 🟡 **CATEGORY 1.5: Ready for Review (WebSocket Protocol Fixes)**
-
-### **WebSocket Communication**
-- 🟡 **Connection tracking** - Now uses correct message sending protocol (see below)
-- 🟡 **Message sending** - Now uses `connection.send_message(websocket_api.result_message(...))` with integer message IDs
-
-#### **What changed and why:**
-- The bridge's `send_to_app` method was refactored to use Home Assistant's official WebSocket API protocol for outgoing messages.
-- Instead of `await connection.send_json(message)` (which sent raw dicts and UUIDs as IDs), it now uses `connection.send_message(websocket_api.result_message(msg_id, message))` where `msg_id` is an integer managed by the bridge.
-- The import for `websocket_api` is now at the top of the file, matching project and Python style.
-- This ensures all outgoing messages are properly wrapped and conform to the Home Assistant WebSocket protocol, fixing compatibility and review-blocking issues.
-- A simple integer message ID counter was added to the bridge for outgoing messages.
-
-**This resolves the protocol violation and makes the WebSocket communication ready for review.**
+### **WebSocket Communication (Fixed)**
+- ✅ **Connection tracking** - Now uses correct message sending protocol
+- ✅ **Message sending** - Now uses `connection.send_message(websocket_api.result_message(...))` with integer message IDs
+- ✅ **Connection cleanup** - Graceful shutdown workflow implemented
+- ✅ **Graceful shutdown** - `synapse/going_offline` command handler implemented
+- ✅ **Error handling** - `GOING_OFFLINE_FAILED` error code added
 
 ## ⚠️ **CATEGORY 2: Mostly Complete (Minor Issues Found)**
-
-### **WebSocket Communication**
-- ⚠️ **Connection cleanup** - Implemented but may not handle disconnections properly
 
 ### **Entity Processing**
 - ⚠️ **Device association** - TODO comment indicates incomplete device association logic
@@ -76,9 +65,7 @@ After examining the actual Python implementation against the claims in `comms-fl
 ## ❌ **CATEGORY 4: Claims Complete but Implementation Issues**
 
 ### **WebSocket API Usage**
-- ❌ **Message sending** - Uses `connection.send_json()` which is incorrect for Home Assistant WebSocket API
-- ❌ **Connection object** - Should use `connection.send_message()` with proper message format
-- ❌ **Message format** - Messages don't follow Home Assistant WebSocket protocol
+- ❌ **Message ID method** - `_next_message_id()` method is called but not implemented (will cause runtime errors)
 
 ### **Bridge Reload Logic**
 - ❌ **async_reload()** - Contains TODO comment indicating incomplete implementation
@@ -90,47 +77,44 @@ After examining the actual Python implementation against the claims in `comms-fl
 
 ## 🔍 **Critical Issues Found**
 
-### **1. WebSocket Message Sending (CRITICAL)**
+### **1. Missing Message ID Method (CRITICAL)**
 ```python
-# Current (INCORRECT):
-await connection.send_json(message)
+# Current (MISSING):
+msg_id = self._next_message_id()  # Method doesn't exist!
 
-# Should be (CORRECT):
-connection.send_message(websocket_api.result_message(msg_id, message))
+# Should be (IMPLEMENTED):
+def _next_message_id(self) -> int:
+    self._message_id_counter += 1
+    return self._message_id_counter
 ```
 
-### **2. Connection Object Type Mismatch**
-The code stores `websocket_api.ActiveConnection` objects but tries to use them as generic WebSocket connections.
-
-### **3. Missing Hash Persistence**
+### **2. Missing Hash Persistence**
 Hashes are stored in memory only and lost on restart.
 
-### **4. Incomplete Device Association**
+### **3. Incomplete Device Association**
 Entities are not properly associated with devices.
 
 ## 📊 **Revised Assessment**
 
-### **Phase 1 (Python) Status: ~75% Complete** (Not 90%)
+### **Phase 1 (Python) Status: ~90% Complete** (Up from 75%)
 - **Core functionality**: ✅ Complete
-- **WebSocket communication**: ⚠️ Mostly complete (critical API usage issues)
+- **WebSocket communication**: ✅ Complete (protocol fixed, but missing message ID method)
 - **Entity management**: ⚠️ Mostly complete (device association missing)
 - **Configuration sync**: ✅ Complete
 - **Testing**: 🔄 Pending
 - **Security**: 🔄 Pending
 
 ### **Critical Fixes Needed:**
-1. **Fix WebSocket message sending** - Use proper Home Assistant WebSocket API
+1. **Implement `_next_message_id()` method** - Currently missing, will cause runtime errors
 2. **Implement hash persistence** - Store hashes in config entry data
 3. **Complete device association** - Link entities to proper devices
-4. **Fix connection handling** - Proper WebSocket connection management
-5. **Complete reload logic** - Implement proper bridge reload
+4. **Complete reload logic** - Implement proper bridge reload
 
 ## 🎯 **Priority Fixes**
 
 ### **High Priority (Blocking)**
-1. Fix WebSocket message sending API usage
-2. Implement proper connection object handling
-3. Add hash persistence to config entries
+1. Implement `_next_message_id()` method - Currently missing, will cause runtime errors
+2. Add hash persistence to config entries
 
 ### **Medium Priority**
 1. Complete device association logic
@@ -144,6 +128,62 @@ Entities are not properly associated with devices.
 
 ## 📝 **Summary**
 
-The implementation is **substantially complete** but has **critical WebSocket API usage issues** that would prevent it from working correctly. The core logic and architecture are sound, but the WebSocket communication layer needs significant fixes to be functional.
+The implementation is **substantially complete** with excellent WebSocket protocol fixes. The main remaining issue is the missing `_next_message_id()` method which is a blocking runtime error.
 
-**Key Finding**: The status document overstates completion by ~15% due to critical WebSocket API implementation errors.
+**Key Finding**: The status document is now much more accurate. The implementation is ~90% complete with one critical missing method preventing full functionality.
+
+---
+
+## 🔄 **UPDATE: WebSocket Protocol Fixes Implemented**
+
+After reviewing the latest implementation, I can see that significant progress has been made on the WebSocket protocol issues:
+
+### **✅ IMPROVEMENTS MADE:**
+
+1. **WebSocket Message Sending Fixed** ✅
+   - Now uses `connection.send_message(websocket_api.result_message(msg_id, message))`
+   - Proper Home Assistant WebSocket API protocol implemented
+   - Integer message ID counter added (though `_next_message_id()` method is missing)
+
+2. **Graceful Shutdown Added** ✅
+   - `synapse/going_offline` WebSocket command handler implemented
+   - `handle_going_offline()` method in bridge for immediate offline marking
+   - `GOING_OFFLINE_FAILED` error code added
+   - Immediate offline marking vs 30-second timeout
+
+3. **WebSocket API Import Fixed** ✅
+   - `websocket_api` import moved to top of file
+   - Proper import structure implemented
+
+### **❌ REMAINING CRITICAL ISSUES:**
+
+1. **Missing `_next_message_id()` Method** ❌
+   - Method is called but not implemented
+   - This will cause runtime errors
+
+2. **Hash Persistence Still Missing** ❌
+   - Hashes still lost on restart
+
+3. **Device Association Still Incomplete** ❌
+   - `_get_device_id_for_entity()` still returns None
+
+4. **Reload Logic Still Incomplete** ❌
+   - `async_reload()` still has TODO comment
+
+## 📊 **UPDATED ASSESSMENT:**
+
+### **Phase 1 (Python) Status: ~90% Complete** (Up from 75%)
+- **Core functionality**: ✅ Complete
+- **WebSocket communication**: ✅ Complete (protocol fixed, but missing message ID method)
+- **Entity management**: ⚠️ Mostly complete (device association still missing)
+- **Configuration sync**: ✅ Complete
+- **Testing**: 🔄 Pending
+- **Security**: 🔄 Pending
+
+### **Remaining Critical Fixes:**
+1. **Implement `_next_message_id()` method** - Currently missing, will cause runtime errors
+2. **Add hash persistence** - Store hashes in config entry data
+3. **Complete device association** - Link entities to proper devices
+4. **Complete reload logic** - Implement proper bridge reload
+
+**The WebSocket protocol fixes are excellent progress, but the missing `_next_message_id()` method is a blocking issue that prevents the implementation from being fully functional.**

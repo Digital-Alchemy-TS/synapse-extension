@@ -19,6 +19,7 @@ class SynapseErrorCodes:
     HEARTBEAT_FAILED = "heartbeat_failed"
     UPDATE_FAILED = "update_failed"
     CONFIGURATION_UPDATE_FAILED = "configuration_update_failed"
+    GOING_OFFLINE_FAILED = "going_offline_failed"
 
     # Validation errors
     INVALID_UNIQUE_ID = "invalid_unique_id"

@@ -67,6 +67,11 @@ UPDATE_CONFIGURATION_SCHEMA = vol.Schema({
     vol.Required("configuration"): dict,
 })
 
+GOING_OFFLINE_SCHEMA = vol.Schema({
+    vol.Required("type"): "synapse/going_offline",
+    vol.Required("unique_id"): str,
+})
+
 
 def get_bridge_for_unique_id(hass: HomeAssistant, unique_id: str):
     """Get the bridge instance for a given unique_id."""
@@ -240,11 +245,45 @@ async def handle_synapse_update_configuration(
         connection.send_error(msg["id"], SynapseErrorCodes.CONFIGURATION_UPDATE_FAILED, str(e))
 
 
+@websocket_api.websocket_command(GOING_OFFLINE_SCHEMA)
+@websocket_api.async_response
+async def handle_synapse_going_offline(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Handle graceful app shutdown."""
+    try:
+        unique_id = msg["unique_id"]
+
+        logger.info(f"Received going offline message from app: {unique_id}")
+
+        # Find the bridge for this connection
+        bridge, bridge_unique_id = get_bridge_for_connection(hass, connection)
+
+        if bridge is None:
+            logger.warning("No bridge found for going offline message")
+            connection.send_result(msg["id"], {
+                "success": False,
+                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
+                "message": "No bridge found for going offline message"
+            })
+            return
+
+        # Handle the going offline request
+        result = await bridge.handle_going_offline(unique_id)
+
+        connection.send_result(msg["id"], result)
+
+    except Exception as e:
+        logger.error(f"Error handling going offline: {e}")
+        connection.send_error(msg["id"], SynapseErrorCodes.GOING_OFFLINE_FAILED, str(e))
+
+
 def register_websocket_handlers(hass: HomeAssistant) -> None:
     """Register all WebSocket command handlers."""
     websocket_api.async_register_command(hass, handle_synapse_register)
     websocket_api.async_register_command(hass, handle_synapse_heartbeat)
     websocket_api.async_register_command(hass, handle_synapse_update_entity)
     websocket_api.async_register_command(hass, handle_synapse_update_configuration)
+    websocket_api.async_register_command(hass, handle_synapse_going_offline)
 
     logger.info("Synapse WebSocket handlers registered")

@@ -382,6 +382,44 @@ class SynapseBridge:
             "message": "Heartbeat received - hash unchanged"
         }
 
+    async def handle_going_offline(self, unique_id: str) -> Dict[str, Any]:
+        """
+        Handle graceful app shutdown via WebSocket.
+
+        This is called when an app sends a "going offline" message before
+        shutting down gracefully (e.g., on SIGINT).
+
+        Args:
+            unique_id: The unique identifier for the app
+
+        Returns:
+            Dict containing success status and response data
+        """
+        self.logger.info(f"App {unique_id} going offline gracefully")
+
+        # Immediately mark as offline
+        self.online = False
+
+        # Clean up WebSocket connection
+        self.unregister_websocket_connection(unique_id)
+
+        # Cancel heartbeat timer since app is going offline
+        if self._heartbeat_timer:
+            self._heartbeat_timer.cancel()
+            self._heartbeat_timer = None
+
+        # Fire health event to update entity availability
+        self.hass.bus.async_fire(self.event_name("health"))
+
+        self.logger.info(f"App {unique_id} marked as offline - graceful shutdown complete")
+
+        return {
+            "success": True,
+            "offline": True,
+            "message": "App marked as offline - graceful shutdown complete",
+            "unique_id": unique_id
+        }
+
     async def handle_entity_update(self, entity_unique_id: str, changes: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle entity update from app via WebSocket.
