@@ -4,7 +4,7 @@
 
 **Goal**: Replace the current event bus abuse with proper WebSocket API communication between Home Assistant and external Synapse applications.
 
-**Current Status**: Groundwork implementation complete - WebSocket handlers created and bridge gutted.
+**Current Status**: Validation logic complete - registration validation with error codes implemented.
 
 **Timeline**:
 - Phase 1: Python rework (current)
@@ -19,9 +19,9 @@
 - `__init__.py` - Main integration setup ✅ Updated
 - `synapse/bridge.py` - Core communication logic ✅ Gutted & refactored
 - `synapse/base_entity.py` - Base entity class (4.3KB, 133 lines)
-- `synapse/const.py` - Constants and types (3.9KB, 169 lines)
+- `synapse/const.py` - Constants and types ✅ Updated with error codes
 - `synapse/helpers.py` - Utility functions (478B, 17 lines)
-- `websocket.py` - WebSocket handlers ✅ NEW
+- `websocket.py` - WebSocket handlers ✅ Updated with error codes
 - Entity files: `sensor.py`, `switch.py`, `climate.py`, etc.
 
 #### Current Communication Pattern:
@@ -29,6 +29,7 @@
 - ✅ **ADDED**: WebSocket API handlers for all commands
 - ✅ **ADDED**: Bridge methods for handling WebSocket communication
 - ✅ **ADDED**: Connection tracking and management
+- ✅ **ADDED**: Validation logic with error codes
 
 ### TypeScript Side (Reference Libraries)
 **Location**: `src/`
@@ -50,10 +51,10 @@
 ### Connection & Registration Flow
 1. **NodeJS App connects** to Home Assistant via WebSocket API
 2. **App sends "hello world"** message with app metadata (see `src/services/discovery.service.mts`)
-3. **Extension validates unique_id** against existing connections (error if already in use)
-4. **Extension checks unique_id** against registered apps list
-5. **If not registered**: Do not continue (see enhancement requests for future discovery plans)
-6. **If registered**: Send acknowledgment with last known app hash
+3. **Extension validates unique_id** against existing connections (error if already in use) ✅ IMPLEMENTED
+4. **Extension checks unique_id** against registered apps list ✅ IMPLEMENTED
+5. **If not registered**: Do not continue (see enhancement requests for future discovery plans) ✅ IMPLEMENTED
+6. **If registered**: Send acknowledgment with last known app hash ✅ IMPLEMENTED
 7. **TS side compares hashes** using `storage.hash()` function
 8. **If hash mismatch**: Transmit full entity/device configuration
 9. **Configuration becomes source of truth** for HA entity/device management
@@ -87,6 +88,8 @@
 - ✅ Implemented basic handler methods
 - ✅ Added connection management methods
 - ✅ Gutted old communication code
+- ✅ **ADDED**: Validation logic with error codes
+- ✅ **ADDED**: Registration validation methods
 
 #### 1.3 Update Integration Setup ✅ COMPLETE
 **File**: `custom_components/synapse/__init__.py` ✅ UPDATED
@@ -95,6 +98,14 @@
 - ✅ Register WebSocket commands
 - ✅ Added `async_setup()` function
 - ✅ WebSocket handlers registered on integration load
+
+#### 1.4 Error Codes & Validation ✅ COMPLETE
+**File**: `custom_components/synapse/synapse/const.py` ✅ UPDATED
+
+**Changes completed**:
+- ✅ Added `SynapseErrorCodes` enum
+- ✅ Defined all error codes for WebSocket communication
+- ✅ Comprehensive error code documentation
 
 ### Phase 2: TypeScript Library Updates
 
@@ -130,10 +141,12 @@
 - [x] **Bridge class gutted and refactored** (`bridge.py`)
 - [x] **Integration setup updated** (`__init__.py`)
 - [x] **Basic "hello world" reception implemented**
+- [x] **Validation logic implemented** with error codes
+- [x] **Error code system created** (`SynapseErrorCodes`)
+- [x] **Registration validation complete** (unique_id checks, app registration checks)
 
 #### 🔄 In Progress
-- [ ] Implement validation checks in bridge
-- [ ] Add hash storage and comparison logic
+- [ ] Implement hash storage and comparison logic
 - [ ] Implement configuration sync logic
 
 #### ⏳ Pending
@@ -164,6 +177,7 @@
 3. **Manual Testing**: Test with real Home Assistant instance
 4. **Hash Synchronization**: Test hash comparison and resync
 5. **Connection Management**: Test unique_id validation
+6. **Error Handling**: Test all error codes and validation scenarios
 
 ### TypeScript Testing
 1. **Unit Tests**: Test WebSocket client methods
@@ -192,6 +206,15 @@
 }
 ```
 
+### Error Code System ✅ IMPLEMENTED
+```python
+class SynapseErrorCodes:
+    ALREADY_CONNECTED = "already_connected"
+    NOT_REGISTERED = "not_registered"
+    BRIDGE_NOT_FOUND = "bridge_not_found"
+    # ... additional error codes
+```
+
 ### Hash Synchronization
 - **Hash Generation**: Based on complete app configuration
 - **Hash Comparison**: Used to detect configuration changes
@@ -204,11 +227,11 @@
 - **Option 3**: App-specific tokens
 - **Decision**: TBD based on security requirements
 
-### Error Handling
-- Proper error codes and messages
-- Retry logic for transient failures
-- Graceful degradation
-- Comprehensive logging
+### Error Handling ✅ IMPLEMENTED
+- ✅ Proper error codes and messages
+- ✅ Consistent error response format
+- ✅ Comprehensive error documentation
+- ✅ Validation logic with clear error states
 
 ## 🚨 Known Issues
 
@@ -235,6 +258,7 @@
 - `notes/websocket-api.md` - Detailed WebSocket implementation plan
 - `notes/code-quality.md` - Code quality improvements needed
 - `notes/comms-workflow.md` - Complete workflow documentation with diagrams
+- `notes/websocket-error-codes.md` - Error codes and validation documentation ✅ NEW
 
 ### TypeScript Libraries
 - `src/synapse.module.mts` - Main module reference
@@ -250,7 +274,8 @@
 1. [x] Create `websocket.py` with basic command handlers ✅
 2. [x] Update bridge class to use WebSocket ✅
 3. [x] Implement basic "hello world" reception ✅
-4. [ ] Test basic communication
+4. [x] Implement validation logic with error codes ✅
+5. [ ] Test basic communication
 
 ### Short Term (Next Week)
 1. [ ] Complete Python implementation
@@ -275,12 +300,12 @@
 ### Decision Points
 - Authentication method selection
 - Backward compatibility strategy
-- Error handling approach
+- Error handling approach ✅ DECIDED
 - Testing methodology
 - Hash synchronization strategy
 
 ---
 
 **Last Updated**: [Current Date]
-**Status**: Groundwork Complete - WebSocket Infrastructure Ready
-**Next Review**: After validation logic implementation
+**Status**: Validation Logic Complete - Error Codes Implemented
+**Next Review**: After hash synchronization implementation

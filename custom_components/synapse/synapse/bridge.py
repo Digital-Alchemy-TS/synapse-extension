@@ -58,6 +58,7 @@ from .const import (
     PLATFORMS,
     SynapseApplication,
     SynapseMetadata,
+    SynapseErrorCodes,
     APP_OFFLINE_DELAY,
 )
 
@@ -112,31 +113,96 @@ class SynapseBridge:
         if unique_id in self._websocket_connections:
             del self._websocket_connections[unique_id]
 
+    def is_unique_id_connected(self, unique_id: str) -> bool:
+        """
+        Check if a unique_id already has an active WebSocket connection.
+
+        Args:
+            unique_id: The unique identifier to check
+
+        Returns:
+            bool: True if already connected, False otherwise
+        """
+        return unique_id in self._websocket_connections
+
+    def is_app_registered(self, unique_id: str) -> bool:
+        """
+        Check if the unique_id corresponds to a registered app in config.
+
+        Args:
+            unique_id: The unique identifier to check
+
+        Returns:
+            bool: True if app is registered, False otherwise
+        """
+        # Look through all config entries for this domain
+        config_entries = self.hass.config_entries.async_entries(DOMAIN)
+
+        for entry in config_entries:
+            if entry.data.get("unique_id") == unique_id:
+                return True
+
+        return False
+
+    def get_last_known_hash(self, unique_id: str) -> str:
+        """
+        Get the last known hash for this app.
+
+        Args:
+            unique_id: The unique identifier to get hash for
+
+        Returns:
+            str: The last known hash or empty string if not found
+        """
+        return self._hash_dict.get(unique_id, "")
+
     async def handle_registration(self, unique_id: str, app_metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle app registration via WebSocket.
 
-        This is the "hello world" message handler.
+        This is the "hello world" message handler that validates the registration
+        and returns the appropriate response.
+
+        Args:
+            unique_id: The unique identifier for the app
+            app_metadata: The app metadata from the registration message
+
+        Returns:
+            Dict containing success status, error codes, and response data
         """
         self.logger.info(f"Handling registration for {unique_id}")
 
-        # TODO: Implement validation checks
-        # 1. Check if unique_id is already connected
-        # 2. Check if app is registered in config
-        # 3. Get last known hash for app
+        # Step 1: Check if unique_id is already connected
+        if self.is_unique_id_connected(unique_id):
+            self.logger.warning(f"Registration failed: {unique_id} is already connected")
+            return {
+                "success": False,
+                "error_code": SynapseErrorCodes.ALREADY_CONNECTED,
+                "message": f"Unique ID {unique_id} is already connected",
+                "unique_id": unique_id
+            }
 
-        # For now, just acknowledge receipt and return last known hash
-        last_known_hash = self._hash_dict.get(unique_id, "")
+        # Step 2: Check if app is registered in config
+        if not self.is_app_registered(unique_id):
+            self.logger.warning(f"Registration failed: {unique_id} is not registered")
+            return {
+                "success": False,
+                "error_code": SynapseErrorCodes.NOT_REGISTERED,
+                "message": f"App with unique_id {unique_id} is not registered",
+                "unique_id": unique_id
+            }
 
-        # Register the connection
-        # Note: We'll need to get the actual connection object from the WebSocket handler
-        # For now, just track that we received a registration
+        # Step 3: Get last known hash
+        last_known_hash = self.get_last_known_hash(unique_id)
 
+        # Step 4: Registration successful
+        self.logger.info(f"Registration successful for {unique_id}")
         return {
             "success": True,
             "registered": True,
             "last_known_hash": last_known_hash,
-            "message": "Registration received - validation pending"
+            "message": "Registration successful",
+            "unique_id": unique_id
         }
 
     async def handle_heartbeat(self, unique_id: str, current_hash: str) -> Dict[str, Any]:

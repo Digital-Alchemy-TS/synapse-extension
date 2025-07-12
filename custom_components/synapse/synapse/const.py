@@ -5,6 +5,31 @@ QUERY_TIMEOUT=0.1
 RETRIES=3
 RETRY_DELAY=5
 
+# WebSocket Error Codes
+class SynapseErrorCodes:
+    """Error codes for Synapse WebSocket communication."""
+
+    # Registration errors
+    ALREADY_CONNECTED = "already_connected"
+    NOT_REGISTERED = "not_registered"
+    BRIDGE_NOT_FOUND = "bridge_not_found"
+
+    # Communication errors
+    REGISTRATION_FAILED = "registration_failed"
+    HEARTBEAT_FAILED = "heartbeat_failed"
+    UPDATE_FAILED = "update_failed"
+    CONFIGURATION_UPDATE_FAILED = "configuration_update_failed"
+
+    # Validation errors
+    INVALID_UNIQUE_ID = "invalid_unique_id"
+    INVALID_APP_METADATA = "invalid_app_metadata"
+    INVALID_HASH = "invalid_hash"
+
+    # System errors
+    INTERNAL_ERROR = "internal_error"
+    TIMEOUT_ERROR = "timeout_error"
+    CONNECTION_ERROR = "connection_error"
+
 class SynapseMetadata:
     """Entity device information for device registry."""
     configuration_url: str | None

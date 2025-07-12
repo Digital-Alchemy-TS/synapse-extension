@@ -16,7 +16,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 
-from .synapse.const import DOMAIN
+from .synapse.const import DOMAIN, SynapseErrorCodes
 
 DOMAIN_WS = f"{DOMAIN}_ws"
 
@@ -95,22 +95,24 @@ async def handle_synapse_register(
             logger.warning(f"No bridge found for unique_id: {unique_id}")
             connection.send_result(msg["id"], {
                 "success": False,
-                "error": "bridge_not_found",
-                "message": f"No bridge found for unique_id: {unique_id}"
+                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
+                "message": f"No bridge found for unique_id: {unique_id}",
+                "unique_id": unique_id
             })
             return
 
         # Handle the registration
         result = await bridge.handle_registration(unique_id, app_metadata)
 
-        # Register the WebSocket connection with the bridge
-        bridge.register_websocket_connection(unique_id, connection)
+        # If registration was successful, register the WebSocket connection
+        if result.get("success", False):
+            bridge.register_websocket_connection(unique_id, connection)
 
         connection.send_result(msg["id"], result)
 
     except Exception as e:
         logger.error(f"Error handling registration: {e}")
-        connection.send_error(msg["id"], "registration_failed", str(e))
+        connection.send_error(msg["id"], SynapseErrorCodes.REGISTRATION_FAILED, str(e))
 
 
 @websocket_api.websocket_command(HEARTBEAT_SCHEMA)
@@ -144,7 +146,7 @@ async def handle_synapse_heartbeat(
             logger.warning("No bridge found for heartbeat")
             connection.send_result(msg["id"], {
                 "success": False,
-                "error": "bridge_not_found",
+                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
                 "message": "No bridge found for heartbeat"
             })
             return
@@ -156,7 +158,7 @@ async def handle_synapse_heartbeat(
 
     except Exception as e:
         logger.error(f"Error handling heartbeat: {e}")
-        connection.send_error(msg["id"], "heartbeat_failed", str(e))
+        connection.send_error(msg["id"], SynapseErrorCodes.HEARTBEAT_FAILED, str(e))
 
 
 @websocket_api.websocket_command(UPDATE_ENTITY_SCHEMA)
@@ -186,7 +188,7 @@ async def handle_synapse_update_entity(
             logger.warning("No bridge found for entity update")
             connection.send_result(msg["id"], {
                 "success": False,
-                "error": "bridge_not_found",
+                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
                 "message": "No bridge found for entity update"
             })
             return
@@ -198,7 +200,7 @@ async def handle_synapse_update_entity(
 
     except Exception as e:
         logger.error(f"Error handling entity update: {e}")
-        connection.send_error(msg["id"], "update_failed", str(e))
+        connection.send_error(msg["id"], SynapseErrorCodes.UPDATE_FAILED, str(e))
 
 
 @websocket_api.websocket_command(UPDATE_CONFIGURATION_SCHEMA)
@@ -225,7 +227,7 @@ async def handle_synapse_update_configuration(
             logger.warning("No bridge found for configuration update")
             connection.send_result(msg["id"], {
                 "success": False,
-                "error": "bridge_not_found",
+                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
                 "message": "No bridge found for configuration update"
             })
             return
@@ -237,7 +239,7 @@ async def handle_synapse_update_configuration(
 
     except Exception as e:
         logger.error(f"Error handling configuration update: {e}")
-        connection.send_error(msg["id"], "configuration_update_failed", str(e))
+        connection.send_error(msg["id"], SynapseErrorCodes.CONFIGURATION_UPDATE_FAILED, str(e))
 
 
 def register_websocket_handlers(hass: HomeAssistant) -> None:
