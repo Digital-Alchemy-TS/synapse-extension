@@ -146,6 +146,9 @@ class SynapseBridge:
         """
         Send a WebSocket message to a connected app using the correct Home Assistant WebSocket API protocol.
 
+        For push notifications (unsolicited messages from Home Assistant to app), we use event_message().
+        For responses to app requests, we use result_message() with the app's message ID.
+
         Args:
             unique_id: The unique identifier for the app
             message: The message to send
@@ -159,9 +162,9 @@ class SynapseBridge:
 
         try:
             connection = self._websocket_connections[unique_id]
-            msg_id = self._next_message_id()
-            connection.send_message(websocket_api.result_message(msg_id, message))
-            self.logger.debug(f"Sent message to {unique_id}: {message.get('type', 'unknown')} (id={msg_id})")
+            # For push notifications, use event_message() - no ID needed
+            connection.send_message(websocket_api.event_message(message))
+            self.logger.debug(f"Sent push notification to {unique_id}: {message.get('type', 'unknown')}")
             return True
         except Exception as e:
             self.logger.error(f"Failed to send message to {unique_id}: {e}")
