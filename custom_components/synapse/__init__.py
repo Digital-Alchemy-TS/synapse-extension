@@ -8,8 +8,15 @@ from homeassistant.core import HomeAssistant
 
 from .synapse.bridge import SynapseBridge
 from .synapse.const import DOMAIN, PLATFORMS
+from .websocket import register_websocket_handlers
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the Synapse component."""
+    # Register WebSocket command handlers
+    register_websocket_handlers(hass)
+    return True
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Set up Synapse app from a config entry."""
