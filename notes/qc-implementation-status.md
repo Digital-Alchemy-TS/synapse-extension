@@ -65,7 +65,8 @@ After examining the actual Python implementation against the claims in `comms-fl
 ## ❌ **CATEGORY 4: Claims Complete but Implementation Issues**
 
 ### **WebSocket API Usage**
-- ❌ **Message ID method** - `_next_message_id()` method is called but not implemented (will cause runtime errors)
+- ❌ **Push notification format** - Uses `websocket_api.result_message()` for push notifications (should use `event_message()`)
+- ❌ **Unnecessary ID generation** - Tries to generate IDs for push notifications when none are needed
 
 ### **Bridge Reload Logic**
 - ❌ **async_reload()** - Contains TODO comment indicating incomplete implementation
@@ -77,15 +78,13 @@ After examining the actual Python implementation against the claims in `comms-fl
 
 ## 🔍 **Critical Issues Found**
 
-### **1. Missing Message ID Method (CRITICAL)**
+### **1. Incorrect Push Notification Format (CRITICAL)**
 ```python
-# Current (MISSING):
-msg_id = self._next_message_id()  # Method doesn't exist!
+# Current (INCORRECT):
+connection.send_message(websocket_api.result_message(msg_id, message))  # ❌ Wrong for push notifications
 
-# Should be (IMPLEMENTED):
-def _next_message_id(self) -> int:
-    self._message_id_counter += 1
-    return self._message_id_counter
+# Should be (CORRECT):
+connection.send_message(websocket_api.event_message(message))  # ✅ Correct for push notifications
 ```
 
 ### **2. Missing Hash Persistence**
@@ -98,22 +97,23 @@ Entities are not properly associated with devices.
 
 ### **Phase 1 (Python) Status: ~90% Complete** (Up from 75%)
 - **Core functionality**: ✅ Complete
-- **WebSocket communication**: ✅ Complete (protocol fixed, but missing message ID method)
+- **WebSocket communication**: ✅ Complete (protocol fixed, but wrong message format for push notifications)
 - **Entity management**: ⚠️ Mostly complete (device association missing)
 - **Configuration sync**: ✅ Complete
 - **Testing**: 🔄 Pending
 - **Security**: 🔄 Pending
 
 ### **Critical Fixes Needed:**
-1. **Implement `_next_message_id()` method** - Currently missing, will cause runtime errors
-2. **Implement hash persistence** - Store hashes in config entry data
-3. **Complete device association** - Link entities to proper devices
-4. **Complete reload logic** - Implement proper bridge reload
+1. **Fix push notification format** - Use `websocket_api.event_message()` instead of `result_message()`
+2. **Remove unnecessary ID generation** - No IDs needed for push notifications
+3. **Implement hash persistence** - Store hashes in config entry data
+4. **Complete device association** - Link entities to proper devices
+5. **Complete reload logic** - Implement proper bridge reload
 
 ## 🎯 **Priority Fixes**
 
 ### **High Priority (Blocking)**
-1. Implement `_next_message_id()` method - Currently missing, will cause runtime errors
+1. Fix push notification format - Use correct WebSocket API method
 2. Add hash persistence to config entries
 
 ### **Medium Priority**
@@ -128,9 +128,9 @@ Entities are not properly associated with devices.
 
 ## 📝 **Summary**
 
-The implementation is **substantially complete** with excellent WebSocket protocol fixes. The main remaining issue is the missing `_next_message_id()` method which is a blocking runtime error.
+The implementation is **substantially complete** with excellent WebSocket protocol fixes. The main remaining issue is using the wrong message format for push notifications - should use `event_message()` instead of `result_message()`.
 
-**Key Finding**: The status document is now much more accurate. The implementation is ~90% complete with one critical missing method preventing full functionality.
+**Key Finding**: The status document is now much more accurate. The implementation is ~90% complete with one critical message format issue preventing proper push notifications.
 
 ---
 
@@ -157,9 +157,9 @@ After reviewing the latest implementation, I can see that significant progress h
 
 ### **❌ REMAINING CRITICAL ISSUES:**
 
-1. **Missing `_next_message_id()` Method** ❌
-   - Method is called but not implemented
-   - This will cause runtime errors
+1. **Wrong Push Notification Format** ❌
+   - Uses `result_message()` for push notifications (should use `event_message()`)
+   - No IDs needed for push notifications from Home Assistant to app
 
 2. **Hash Persistence Still Missing** ❌
    - Hashes still lost on restart
@@ -174,16 +174,17 @@ After reviewing the latest implementation, I can see that significant progress h
 
 ### **Phase 1 (Python) Status: ~90% Complete** (Up from 75%)
 - **Core functionality**: ✅ Complete
-- **WebSocket communication**: ✅ Complete (protocol fixed, but missing message ID method)
+- **WebSocket communication**: ✅ Complete (protocol fixed, but wrong message format for push notifications)
 - **Entity management**: ⚠️ Mostly complete (device association still missing)
 - **Configuration sync**: ✅ Complete
 - **Testing**: 🔄 Pending
 - **Security**: 🔄 Pending
 
 ### **Remaining Critical Fixes:**
-1. **Implement `_next_message_id()` method** - Currently missing, will cause runtime errors
-2. **Add hash persistence** - Store hashes in config entry data
-3. **Complete device association** - Link entities to proper devices
-4. **Complete reload logic** - Implement proper bridge reload
+1. **Fix push notification format** - Use `websocket_api.event_message()` instead of `result_message()`
+2. **Remove unnecessary ID generation** - No IDs needed for push notifications
+3. **Add hash persistence** - Store hashes in config entry data
+4. **Complete device association** - Link entities to proper devices
+5. **Complete reload logic** - Implement proper bridge reload
 
-**The WebSocket protocol fixes are excellent progress, but the missing `_next_message_id()` method is a blocking issue that prevents the implementation from being fully functional.**
+**The WebSocket protocol fixes are excellent progress, but the push notification format is incorrect and will prevent proper communication with the NodeJS app.**
