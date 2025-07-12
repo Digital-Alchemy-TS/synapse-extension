@@ -123,6 +123,110 @@ sequenceDiagram
     end
 ```
 
+## 🔄 App Disconnection Flow
+
+### Graceful Shutdown (SIGINT Handling)
+
+When an app receives a SIGINT signal (Ctrl+C, process termination), it should perform a graceful shutdown:
+
+```mermaid
+sequenceDiagram
+    participant App as NodeJS App
+    participant WS as WebSocket API
+    participant Bridge as Synapse Bridge
+    participant Entities as Entity Registry
+
+    Note over App: App receives SIGINT signal
+    App->>WS: synapse/going_offline {unique_id}
+    WS->>Bridge: Forward going offline message
+    Bridge->>Bridge: Immediately mark app as offline
+    Bridge->>Bridge: Clean up WebSocket connection
+    Bridge->>Entities: Update entity availability
+    Bridge->>WS: Going offline acknowledged
+    WS->>App: Acknowledgment received
+    App->>WS: Close WebSocket connection
+    App->>App: Terminate process
+```
+
+### Unexpected Disconnection (Timeout)
+
+When an app suddenly stops (power loss, crash, network issues), the bridge detects this through heartbeat timeout:
+
+```mermaid
+sequenceDiagram
+    participant App as NodeJS App
+    participant WS as WebSocket API
+    participant Bridge as Synapse Bridge
+    participant Entities as Entity Registry
+
+    Note over App: App suddenly stops (no SIGINT)
+    Note over Bridge: No heartbeat received for 30 seconds
+    Bridge->>Bridge: Heartbeat timeout detected
+    Bridge->>Bridge: Mark app as offline
+    Bridge->>Bridge: Clean up WebSocket connection
+    Bridge->>Entities: Update entity availability
+    Bridge->>Bridge: Fire health event
+    Entities->>Entities: Update online/offline status
+```
+
+### Disconnection Handling Comparison
+
+| Scenario | Signal | Bridge Response | Cleanup Actions |
+|----------|--------|-----------------|-----------------|
+| **Graceful Shutdown** | SIGINT | Immediate offline | Connection cleanup, entity availability update |
+| **Unexpected Stop** | None (timeout) | 30-second delay | Connection cleanup, entity availability update |
+
+### Implementation Notes
+
+#### TypeScript Side (App)
+```typescript
+// Graceful shutdown handler
+process.on('SIGINT', async () => {
+  console.log('Received SIGINT, shutting down gracefully...');
+
+  try {
+    // Send going offline message
+    await client.sendMessage('synapse/going_offline', {
+      unique_id: appUniqueId
+    });
+
+    // Wait for acknowledgment
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Close WebSocket connection
+    client.disconnect();
+
+    console.log('Graceful shutdown complete');
+    process.exit(0);
+  } catch (error) {
+    console.error('Error during graceful shutdown:', error);
+    process.exit(1);
+  }
+});
+```
+
+#### Python Side (Bridge)
+```python
+async def handle_going_offline(self, unique_id: str) -> Dict[str, Any]:
+    """Handle graceful app shutdown."""
+    self.logger.info(f"App {unique_id} going offline gracefully")
+
+    # Immediately mark as offline
+    self.online = False
+
+    # Clean up WebSocket connection
+    self.unregister_websocket_connection(unique_id)
+
+    # Update entity availability
+    self.hass.bus.async_fire(self.event_name("health"))
+
+    return {
+        "success": True,
+        "offline": True,
+        "message": "App marked as offline"
+    }
+```
+
 ## 🔄 Entity Update Flow
 
 ### Runtime Entity Patches
@@ -276,6 +380,7 @@ sequenceDiagram
 | `synapse/update_entity` | App → HA | Entity updates | Entity changes |
 | `synapse/update_configuration` | App → HA | Full config sync | Complete config |
 | `synapse/request_configuration` | HA → App | Request config | None |
+| `synapse/going_offline` | App → HA | Graceful shutdown | Unique ID |
 | `synapse/register_service` | App → HA | Service registration | Service schema |
 | `synapse/service_call` | HA → App | Service invocation | Service data |
 | `synapse/service_response` | App → HA | Service response | Service result |
