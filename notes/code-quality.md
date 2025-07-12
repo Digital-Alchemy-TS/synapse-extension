@@ -8,58 +8,19 @@ Address code quality issues including missing type hints, error handling, global
 ### 1. Missing Type Hints
 
 #### 1.1 Files Requiring Type Hints
-- `bridge.py`: Most methods lack proper type annotations
-- `base_entity.py`: Event handlers need type hints
-- All entity files need proper type annotations for properties
-- `config_flow.py`: Event handlers need type hints
+- `bridge.py`: **COMPLETE**
+- `base_entity.py`: **COMPLETE**
+- All entity files: **COMPLETE**
+- `config_flow.py`: **COMPLETE**
+- `helpers.py`: **COMPLETE** (no functions needing hints)
 
 #### 1.2 Implementation Plan
-```python
-# Example: bridge.py with proper type hints
-from __future__ import annotations
-from typing import Any, Dict, List, Optional
-import asyncio
-import logging
+- All files now use explicit type hints for all function/method parameters and return values, including properties and event handlers.
+- All files use `from __future__ import annotations` for modern type hinting.
+- All instance variables are type-annotated where appropriate.
+- All code compiles and is ready for mypy/static analysis.
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
-
-from .const import DOMAIN, SynapseApplication, SynapseMetadata
-
-class SynapseBridge:
-    """Bridge for managing synapse app communication."""
-
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
-        """Initialize the bridge."""
-        self.logger: logging.Logger = logging.getLogger(__name__)
-        self.config_entry: ConfigEntry = config_entry
-        self.primary_device: Optional[DeviceInfo] = None
-        self.via_primary_device: Dict[str, DeviceInfo] = {}
-        self.hass: HomeAssistant = hass
-        self.app_data: SynapseApplication = config_entry.data
-        self.app_name: str = self.app_data.get("app", "")
-        self.metadata_unique_id: str = self.app_data.get("unique_id", "")
-
-        # ... rest of init
-
-    async def async_cleanup(self) -> None:
-        """Clean up resources when tearing down the bridge."""
-        # Implementation
-
-    @callback
-    def handle_heartbeat(self, event: Any) -> None:
-        """Handle heartbeat & 'coming back online' messages."""
-        # Implementation
-
-    def format_device_info(self, device: Optional[SynapseMetadata] = None) -> Dict[str, Any]:
-        """Translate between synapse data objects and hass device info."""
-        # Implementation
-
-    async def async_reload(self) -> None:
-        """Reload the bridge and update local info."""
-        # Implementation
-```
+**Status:** ✅ _Type hints are now complete and up to Home Assistant core standards._
 
 ### 2. Error Handling
 
