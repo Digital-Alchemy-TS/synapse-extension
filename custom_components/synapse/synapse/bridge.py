@@ -1016,8 +1016,38 @@ class SynapseBridge:
             entity_data: The entity configuration data
 
         Returns:
-            Optional device ID string
+            Optional device ID string from the device registry
         """
-        # TODO: Implement device association logic
-        # For now, return None (entities will be associated with the primary device)
+        # Check if entity has a specific device_id declared
+        declared_device_id = entity_data.get("device_id")
+        if declared_device_id:
+            # Validate that the declared device exists
+            if declared_device_id in self._current_devices:
+                # Get the device registry to find the actual device ID
+                device_registry = dr.async_get(self.hass)
+                device_entry = device_registry.async_get_device(
+                    identifiers={(DOMAIN, declared_device_id)}
+                )
+                if device_entry:
+                    self.logger.debug(f"Entity {entity_data.get('unique_id')} associated with device {declared_device_id}")
+                    return device_entry.id
+                else:
+                    self.logger.warning(f"Device {declared_device_id} not found in registry for entity {entity_data.get('unique_id')}")
+            else:
+                self.logger.warning(f"Declared device {declared_device_id} not in current devices for entity {entity_data.get('unique_id')}")
+
+        # If no device_id specified or device not found, associate with primary device
+        if self.primary_device:
+            device_registry = dr.async_get(self.hass)
+            primary_device_unique_id = self.app_data.get("device", {}).get("unique_id")
+            if primary_device_unique_id:
+                device_entry = device_registry.async_get_device(
+                    identifiers={(DOMAIN, primary_device_unique_id)}
+                )
+                if device_entry:
+                    self.logger.debug(f"Entity {entity_data.get('unique_id')} associated with primary device {primary_device_unique_id}")
+                    return device_entry.id
+
+        # Fallback: no device association
+        self.logger.debug(f"Entity {entity_data.get('unique_id')} has no device association")
         return None
