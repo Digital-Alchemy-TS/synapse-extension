@@ -106,6 +106,86 @@ def get_last_known_hash(self, unique_id: str) -> str:
 - Look in `self._hash_dict` for the `unique_id`
 - Return stored hash or empty string if not found
 
+## 🤔 Understanding Bridge Not Found
+
+### Why Does `bridge_not_found` Exist?
+
+The `bridge_not_found` error exists primarily to handle **race conditions** and **timing issues** during system startup. While it may seem similar to `not_registered`, they serve different purposes:
+
+#### `not_registered` vs `bridge_not_found`
+
+| Error | When It Occurs | Why It Happens | User Action |
+|-------|----------------|----------------|-------------|
+| `not_registered` | App's unique_id not in config entries | App was never configured or config was removed | Configure the app in Home Assistant |
+| `bridge_not_found` | Config entry exists but bridge instance not available | Race condition during startup or bridge cleanup | Wait and retry (app should handle automatically) |
+
+### When Does `bridge_not_found` Occur?
+
+#### 1. **Race Condition During Startup (Most Common)**
+- **Timeline**: App starts immediately → tries to connect → bridge still initializing
+- **Why**: Apps often start faster than Home Assistant bridge initialization
+- **Window**: 2-3 seconds where config exists but bridge isn't ready
+- **Solution**: App should retry automatically with exponential backoff
+
+#### 2. **Bridge Cleanup During Operation**
+- **Timeline**: App connected → user removes integration → app continues sending messages
+- **Why**: Bridge gets removed from memory but app doesn't know
+- **Window**: Brief period until app detects disconnection
+- **Solution**: App should reconnect when bridge becomes available again
+
+#### 3. **Bridge Initialization Failure**
+- **Timeline**: Config entry exists → bridge creation fails → app tries to connect
+- **Why**: Bridge failed to initialize due to missing dependencies or errors
+- **Window**: Indefinite until config entry is fixed
+- **Solution**: Fix the underlying issue causing bridge initialization failure
+
+### The Race Condition Explained
+
+```python
+# Timeline of events during startup:
+T=0: App starts up and immediately tries to connect
+T=1: WebSocket handler looks for bridge - NOT FOUND
+T=2: WebSocket returns bridge_not_found error
+T=3: Home Assistant finishes loading config entries
+T=4: Bridge initialization begins
+T=5: Bridge becomes available in hass.data[DOMAIN]
+```
+
+The race condition happens because:
+- **Apps are eager to connect** (start immediately on boot)
+- **Bridge initialization takes time** (depends on Home Assistant startup)
+- **Config entries load before bridges** (config exists but bridge doesn't)
+
+### Why Not Just Use `not_registered`?
+
+While `bridge_not_found` and `not_registered` might seem similar, they represent different scenarios:
+
+- **`not_registered`**: "You're not supposed to connect" (business logic error)
+- **`bridge_not_found`**: "You should be able to connect, but timing/system issue" (technical error)
+
+This distinction allows apps to implement different handling:
+- **`not_registered`**: Don't retry, show configuration error
+- **`bridge_not_found`**: Retry with backoff, wait for system to be ready
+
+### Best Practices for Handling `bridge_not_found`
+
+#### For App Developers:
+```typescript
+if (error.error_code === "bridge_not_found") {
+  // This is likely a race condition - retry with backoff
+  await sleep(2000);
+  return retryConnection();
+} else if (error.error_code === "not_registered") {
+  // This is a configuration error - don't retry
+  throw new Error("App not configured in Home Assistant");
+}
+```
+
+#### For End Users:
+- **No action required** - apps should handle `bridge_not_found` automatically
+- **If persistent**: Check Home Assistant logs for bridge initialization errors
+- **If frequent**: Consider delaying app startup by a few seconds
+
 ## 📝 Response Format
 
 ### Success Response
@@ -186,9 +266,9 @@ def get_last_known_hash(self, unique_id: str) -> str:
 }
 ```
 
-### Scenario 3: Successful Registration
+### Scenario 3: Bridge Not Found (Race Condition)
 ```json
-// Valid registration
+// App tries to register during startup race condition
 {
   "id": 3,
   "type": "synapse/register",
@@ -199,6 +279,27 @@ def get_last_known_hash(self, unique_id: str) -> str:
 // Response
 {
   "id": 3,
+  "type": "result",
+  "success": false,
+  "error_code": "bridge_not_found",
+  "message": "Bridge not found for unique_id my_app_123 - may still be initializing",
+  "unique_id": "my_app_123"
+}
+```
+
+### Scenario 4: Successful Registration
+```json
+// Valid registration
+{
+  "id": 4,
+  "type": "synapse/register",
+  "unique_id": "my_app_123",
+  "app_metadata": {...}
+}
+
+// Response
+{
+  "id": 4,
   "type": "result",
   "success": true,
   "registered": true,
@@ -239,7 +340,7 @@ def get_last_known_hash(self, unique_id: str) -> str:
 
 ### For App Developers
 1. **Handle All Error Codes**: Implement proper error handling for all possible error codes
-2. **Retry Logic**: Implement exponential backoff for transient errors
+2. **Retry Logic**: Implement exponential backoff for transient errors (especially `bridge_not_found`)
 3. **Logging**: Log error codes and messages for debugging
 4. **User Feedback**: Provide meaningful user feedback based on error codes
 
