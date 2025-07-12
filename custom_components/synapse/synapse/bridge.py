@@ -477,11 +477,22 @@ class SynapseBridge:
         self.logger.debug(f"Handling entity update for {entity_unique_id}: {changes}")
 
         try:
+            # Validate changes structure
+            if not isinstance(changes, dict):
+                return {
+                    "success": False,
+                    "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                    "message": "Changes must be a dictionary",
+                    "entity_unique_id": entity_unique_id
+                }
+
             # Validate entity exists in our tracking
             entity_found = False
+            entity_domain = None
             for domain, entities in self._current_entities.items():
                 if entity_unique_id in entities:
                     entity_found = True
+                    entity_domain = domain
                     break
 
             if not entity_found:
@@ -492,6 +503,98 @@ class SynapseBridge:
                     "message": f"Entity {entity_unique_id} not found",
                     "entity_unique_id": entity_unique_id
                 }
+
+            # Validate changes against allowed update fields
+            allowed_update_fields = {
+                "name", "icon", "attributes", "state", "device_class",
+                "entity_category", "translation_key", "labels", "area_id"
+            }
+
+            invalid_fields = set(changes.keys()) - allowed_update_fields
+            if invalid_fields:
+                self.logger.warning(f"Invalid update fields for {entity_unique_id}: {invalid_fields}")
+                return {
+                    "success": False,
+                    "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                    "message": f"Invalid update fields: {list(invalid_fields)}",
+                    "entity_unique_id": entity_unique_id
+                }
+
+            # Validate specific field types
+            for field, value in changes.items():
+                if value is not None:  # Allow setting to None for removal
+                    if field == "name" and not isinstance(value, str):
+                        return {
+                            "success": False,
+                            "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                            "message": "name must be a string",
+                            "entity_unique_id": entity_unique_id
+                        }
+                    elif field == "icon" and not isinstance(value, str):
+                        return {
+                            "success": False,
+                            "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                            "message": "icon must be a string",
+                            "entity_unique_id": entity_unique_id
+                        }
+                    elif field == "attributes" and not isinstance(value, dict):
+                        return {
+                            "success": False,
+                            "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                            "message": "attributes must be a dictionary",
+                            "entity_unique_id": entity_unique_id
+                        }
+                    elif field == "labels" and not isinstance(value, list):
+                        return {
+                            "success": False,
+                            "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                            "message": "labels must be a list",
+                            "entity_unique_id": entity_unique_id
+                        }
+                    elif field == "area_id" and not isinstance(value, str):
+                        return {
+                            "success": False,
+                            "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                            "message": "area_id must be a string",
+                            "entity_unique_id": entity_unique_id
+                        }
+
+            # Validate entity_category if present
+            entity_category = changes.get("entity_category")
+            if entity_category is not None:
+                valid_categories = ["config", "diagnostic"]
+                if entity_category not in valid_categories:
+                    return {
+                        "success": False,
+                        "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                        "message": f"entity_category must be one of {valid_categories}",
+                        "entity_unique_id": entity_unique_id
+                    }
+
+            # Validate attributes if present
+            attributes = changes.get("attributes")
+            if attributes is not None:
+                for key, value in attributes.items():
+                    if not isinstance(key, str):
+                        return {
+                            "success": False,
+                            "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                            "message": "Attribute key must be a string",
+                            "entity_unique_id": entity_unique_id
+                        }
+
+                    # Check for JSON serializable values
+                    if isinstance(value, (dict, list)):
+                        try:
+                            import json
+                            json.dumps(value)
+                        except (TypeError, ValueError):
+                            return {
+                                "success": False,
+                                "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                                "message": f"Attribute value for '{key}' is not JSON serializable",
+                                "entity_unique_id": entity_unique_id
+                            }
 
             # Fire entity update event for the specific entity
             self.hass.bus.async_fire(
@@ -699,6 +802,116 @@ class SynapseBridge:
         except Exception as e:
             self.logger.error(f"Error refreshing entity registry: {e}")
 
+    def _validate_entity_data(self, entity_data: Dict[str, Any], domain: str) -> tuple[bool, str]:
+        """
+        Validate entity data against expected structure.
+
+        Args:
+            entity_data: The entity configuration data to validate
+            domain: The domain name for context
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        # Basic structure validation
+        if not isinstance(entity_data, dict):
+            return False, f"Entity data must be a dictionary, got {type(entity_data).__name__}"
+
+        # Required fields validation
+        required_fields = ["unique_id", "name"]
+        for field in required_fields:
+            if field not in entity_data:
+                return False, f"Missing required field '{field}' in entity data"
+
+            if not entity_data[field]:
+                return False, f"Required field '{field}' cannot be empty"
+
+        # Unique ID format validation
+        unique_id = entity_data.get("unique_id", "")
+        if not isinstance(unique_id, str):
+            return False, f"unique_id must be a string, got {type(unique_id).__name__}"
+
+        if len(unique_id.strip()) == 0:
+            return False, "unique_id cannot be empty or whitespace only"
+
+        # Check for invalid characters in unique_id (Home Assistant requirements)
+        invalid_chars = ['<', '>', '&', '"', "'"]
+        for char in invalid_chars:
+            if char in unique_id:
+                return False, f"unique_id contains invalid character '{char}'"
+
+        # Name validation
+        name = entity_data.get("name", "")
+        if not isinstance(name, str):
+            return False, f"name must be a string, got {type(name).__name__}"
+
+        if len(name.strip()) == 0:
+            return False, "name cannot be empty or whitespace only"
+
+        # Optional field type validation
+        optional_fields = {
+            "suggested_object_id": str,
+            "icon": str,
+            "device_class": str,
+            "entity_category": str,
+            "translation_key": str,
+            "attributes": dict,
+            "labels": list,
+            "area_id": str,
+            "device_id": str
+        }
+
+        for field, expected_type in optional_fields.items():
+            if field in entity_data and entity_data[field] is not None:
+                if not isinstance(entity_data[field], expected_type):
+                    return False, f"Field '{field}' must be {expected_type.__name__}, got {type(entity_data[field]).__name__}"
+
+        # Domain-specific validation
+        if domain == "sensor":
+            # Validate sensor-specific fields
+            sensor_fields = ["state_class", "native_unit_of_measurement", "unit_of_measurement"]
+            for field in sensor_fields:
+                if field in entity_data and entity_data[field] is not None:
+                    if not isinstance(entity_data[field], str):
+                        return False, f"Field '{field}' must be a string, got {type(entity_data[field]).__name__}"
+
+        elif domain == "number":
+            # Validate number-specific fields
+            number_fields = ["min_value", "max_value", "step"]
+            for field in number_fields:
+                if field in entity_data and entity_data[field] is not None:
+                    if not isinstance(entity_data[field], (int, float)):
+                        return False, f"Field '{field}' must be a number, got {type(entity_data[field]).__name__}"
+
+        # Entity category validation
+        entity_category = entity_data.get("entity_category")
+        if entity_category is not None:
+            valid_categories = ["config", "diagnostic"]
+            if entity_category not in valid_categories:
+                return False, f"entity_category must be one of {valid_categories}, got '{entity_category}'"
+
+        # Attributes validation
+        attributes = entity_data.get("attributes")
+        if attributes is not None:
+            if not isinstance(attributes, dict):
+                return False, f"attributes must be a dictionary, got {type(attributes).__name__}"
+
+            # Validate attribute values (basic check)
+            for key, value in attributes.items():
+                if not isinstance(key, str):
+                    return False, f"Attribute key must be a string, got {type(key).__name__}"
+
+                # Check for invalid attribute value types
+                if isinstance(value, (dict, list)):
+                    # These are valid but should be JSON serializable
+                    try:
+                        import json
+                        json.dumps(value)
+                    except (TypeError, ValueError):
+                        return False, f"Attribute value for '{key}' is not JSON serializable"
+
+        return True, ""
+
     async def _process_entity_domain(self, domain: str, entities: List[Dict[str, Any]], entity_registry: er.EntityRegistry, new_entities_set: set) -> None:
         """
         Process entities for a specific domain.
@@ -711,15 +924,25 @@ class SynapseBridge:
         """
         self.logger.debug(f"Processing {len(entities)} entities for domain: {domain}")
 
+        processed_count = 0
+        skipped_count = 0
+
         for entity_data in entities:
             try:
-                # Validate entity data
-                if not isinstance(entity_data, dict) or "unique_id" not in entity_data:
-                    self.logger.warning(f"Invalid entity data for domain {domain}: {entity_data}")
+                # Comprehensive entity validation
+                is_valid, error_message = self._validate_entity_data(entity_data, domain)
+                if not is_valid:
+                    self.logger.warning(f"Invalid entity data for domain {domain}: {error_message}")
+                    self.logger.debug(f"Invalid entity data: {entity_data}")
+                    skipped_count += 1
                     continue
 
                 unique_id = entity_data.get("unique_id")
-                if not unique_id:
+
+                # Check for duplicate unique_ids within the same domain
+                if unique_id in new_entities_set:
+                    self.logger.warning(f"Duplicate unique_id '{unique_id}' found in domain {domain}, skipping")
+                    skipped_count += 1
                     continue
 
                 # Track this entity
@@ -743,10 +966,14 @@ class SynapseBridge:
                     "config_entry_id": self.config_entry.entry_id
                 }
 
+                processed_count += 1
                 self.logger.debug(f"Processed entity: {entity_id}")
 
             except Exception as e:
                 self.logger.error(f"Error processing entity {entity_data.get('unique_id', 'unknown')}: {e}")
+                skipped_count += 1
+
+        self.logger.info(f"Domain {domain}: {processed_count} entities processed, {skipped_count} skipped")
 
     async def _remove_orphaned_entities(self, entity_registry: er.EntityRegistry, new_entities: Dict[str, set]) -> None:
         """
