@@ -87,26 +87,34 @@ connection.send_message(websocket_api.result_message(msg_id, message))  # ❌ Wr
 connection.send_message(websocket_api.event_message(message))  # ✅ Correct for push notifications
 ```
 
-### **2. Missing Hash Persistence**
-Hashes are stored in memory only and lost on restart.
+### **2. Missing Hash Persistence - ✅ FIXED**
+Hashes are now stored in config entry data and persist across Home Assistant restarts.
+
+**Implementation Details:**
+- Added `_load_persisted_hashes()` method to load hashes from config entry data on initialization
+- Added `_persist_hashes()` method to save hashes to config entry data
+- Added `_update_hash()` method to update hashes with automatic persistence
+- Updated `handle_configuration_update()` to use the new persistence methods
+- Hashes are stored in `_persisted_hashes` field in config entry data
 
 ### **3. Incomplete Device Association**
 Entities are not properly associated with devices.
 
 ## 📊 **Revised Assessment**
 
-### **Phase 1 (Python) Status: ~90% Complete** (Up from 75%)
+### **Phase 1 (Python) Status: ~95% Complete** (Up from 90%)
 - **Core functionality**: ✅ Complete
-- **WebSocket communication**: ✅ Complete (protocol fixed, but wrong message format for push notifications)
+- **WebSocket communication**: ✅ Complete (protocol fixed, push notification format corrected)
 - **Entity management**: ⚠️ Mostly complete (device association missing)
 - **Configuration sync**: ✅ Complete
+- **Hash persistence**: ✅ Complete (now persists across restarts)
 - **Testing**: 🔄 Pending
 - **Security**: 🔄 Pending
 
 ### **Critical Fixes Needed:**
 1. **✅ Fix push notification format** - Use `websocket_api.event_message()` instead of `result_message()` - **COMPLETED**
-2. **Remove unnecessary ID generation** - No IDs needed for push notifications - **COMPLETED**
-3. **Implement hash persistence** - Store hashes in config entry data
+2. **✅ Remove unnecessary ID generation** - No IDs needed for push notifications - **COMPLETED**
+3. **✅ Implement hash persistence** - Store hashes in config entry data - **COMPLETED**
 4. **Complete device association** - Link entities to proper devices
 5. **Complete reload logic** - Implement proper bridge reload
 
@@ -114,7 +122,7 @@ Entities are not properly associated with devices.
 
 ### **High Priority (Blocking)**
 1. ✅ **Fix push notification format** - Use correct WebSocket API method - **COMPLETED**
-2. Add hash persistence to config entries
+2. ✅ **Add hash persistence to config entries** - **COMPLETED**
 
 ### **Medium Priority**
 1. Complete device association logic
@@ -128,9 +136,14 @@ Entities are not properly associated with devices.
 
 ## 📝 **Summary**
 
-The implementation is **substantially complete** with excellent WebSocket protocol fixes. The critical push notification format issue has been **resolved** - now correctly uses `event_message()` instead of `result_message()`.
+The implementation is **substantially complete** with excellent WebSocket protocol fixes. The critical push notification format issue has been **resolved** - now correctly uses `event_message()` instead of `result_message()`. The hash persistence issue has been **resolved** - hashes now persist across Home Assistant restarts.
 
-**Key Finding**: The status document is now much more accurate. The implementation is ~95% complete with the critical message format issue **fixed**. The remaining issues are hash persistence and device association.
+**Key Finding**: The status document is now much more accurate. The implementation is ~95% complete with the critical message format issue **fixed** and hash persistence **implemented**. The remaining issues are device association and reload logic.
+
+**Recent Fixes:**
+- ✅ **Hash Persistence**: Hashes now stored in config entry data and persist across restarts
+- ✅ **WebSocket Protocol**: Correct message format for push notifications
+- ✅ **Error Handling**: Comprehensive error codes and validation
 
 ---
 

@@ -101,6 +101,9 @@ class SynapseBridge:
         self._heartbeat_timer: Optional[asyncio.TimerHandle] = None
         self._last_heartbeat_time: Optional[float] = None
 
+        # Load persisted hashes from config entry data
+        self._load_persisted_hashes()
+
         self.logger.info(f"{self.app_name} bridge initialized - WebSocket ready")
 
     def event_name(self, event_type: str) -> str:
@@ -201,6 +204,35 @@ class SynapseBridge:
 
         return False
 
+    def _load_persisted_hashes(self) -> None:
+        """Load persisted hashes from config entry data."""
+        try:
+            # Get hashes from config entry data
+            persisted_hashes = self.config_entry.data.get("_persisted_hashes", {})
+            if isinstance(persisted_hashes, dict):
+                self._hash_dict.update(persisted_hashes)
+                self.logger.debug(f"Loaded {len(persisted_hashes)} persisted hashes")
+            else:
+                self.logger.warning("Invalid persisted hashes format in config entry")
+        except Exception as e:
+            self.logger.error(f"Error loading persisted hashes: {e}")
+
+    async def _persist_hashes(self) -> None:
+        """Persist hashes to config entry data."""
+        try:
+            # Create new data with persisted hashes
+            new_data = dict(self.config_entry.data)
+            new_data["_persisted_hashes"] = self._hash_dict
+
+            # Update the config entry
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=new_data
+            )
+            self.logger.debug(f"Persisted {len(self._hash_dict)} hashes to config entry")
+        except Exception as e:
+            self.logger.error(f"Error persisting hashes: {e}")
+
     def get_last_known_hash(self, unique_id: str) -> str:
         """
         Get the last known hash for this app.
@@ -212,6 +244,18 @@ class SynapseBridge:
             str: The last known hash or empty string if not found
         """
         return self._hash_dict.get(unique_id, "")
+
+    async def _update_hash(self, unique_id: str, hash_value: str) -> None:
+        """
+        Update hash for an app and persist it.
+
+        Args:
+            unique_id: The unique identifier for the app
+            hash_value: The new hash value
+        """
+        self._hash_dict[unique_id] = hash_value
+        await self._persist_hashes()
+        self.logger.debug(f"Updated and persisted hash for {unique_id}: {hash_value}")
 
     def _reset_heartbeat_timer(self) -> None:
         """Reset the heartbeat timer to wait for the next heartbeat."""
@@ -493,8 +537,10 @@ class SynapseBridge:
             # Process the configuration update
             await self._process_configuration(configuration)
 
-            # Update hash for this app
-            self._hash_dict[self.metadata_unique_id] = configuration.get("hash", "")
+            # Update hash for this app with persistence
+            new_hash = configuration.get("hash", "")
+            if new_hash:
+                await self._update_hash(self.metadata_unique_id, new_hash)
 
             self.logger.info("Configuration update completed successfully")
 
