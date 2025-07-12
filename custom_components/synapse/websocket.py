@@ -74,6 +74,25 @@ def get_bridge_for_unique_id(hass: HomeAssistant, unique_id: str):
     return domain_data.get(unique_id)
 
 
+def get_bridge_for_connection(hass: HomeAssistant, connection: Any):
+    """
+    Get the bridge instance for a given WebSocket connection.
+
+    This is used for heartbeat and other messages where we need to find
+    which bridge a connection belongs to.
+    """
+    domain_data = hass.data.get(DOMAIN, {})
+
+    # Search through all bridges to find one with this connection
+    for bridge in domain_data.values():
+        if hasattr(bridge, '_websocket_connections'):
+            for uid, conn in bridge._websocket_connections.items():
+                if conn == connection:
+                    return bridge, uid
+
+    return None, None
+
+
 @websocket_api.websocket_command(REGISTER_SCHEMA)
 @websocket_api.async_response
 async def handle_synapse_register(
@@ -126,21 +145,8 @@ async def handle_synapse_heartbeat(
 
         logger.debug(f"Received heartbeat with hash: {current_hash}")
 
-        # TODO: Determine which bridge this heartbeat belongs to
-        # For now, we'll need to find the bridge by connection or other means
-        # This is a temporary implementation
-
-        # Find bridge by connection
-        domain_data = hass.data.get(DOMAIN, {})
-        bridge = None
-        unique_id = None
-
-        for uid, br in domain_data.items():
-            if uid in br._websocket_connections:
-                # This is a simplified check - we'll need a better way to map connections
-                bridge = br
-                unique_id = uid
-                break
+        # Find the bridge for this connection
+        bridge, unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
             logger.warning("No bridge found for heartbeat")
@@ -153,6 +159,12 @@ async def handle_synapse_heartbeat(
 
         # Handle the heartbeat
         result = await bridge.handle_heartbeat(unique_id, current_hash)
+
+        # If hash drift was detected, we might want to send additional commands
+        if result.get("hash_drift_detected", False):
+            logger.info(f"Hash drift detected for {unique_id}, requesting configuration update")
+            # The app should respond to this by sending a configuration update
+            # We could also send a separate command here if needed
 
         connection.send_result(msg["id"], result)
 
@@ -173,16 +185,8 @@ async def handle_synapse_update_entity(
 
         logger.debug(f"Received entity update for {entity_unique_id}: {changes}")
 
-        # TODO: Determine which bridge this update belongs to
-        # Similar to heartbeat, we need to find the bridge
-
-        domain_data = hass.data.get(DOMAIN, {})
-        bridge = None
-
-        for uid, br in domain_data.items():
-            if uid in br._websocket_connections:
-                bridge = br
-                break
+        # Find the bridge for this connection
+        bridge, unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
             logger.warning("No bridge found for entity update")
@@ -214,14 +218,8 @@ async def handle_synapse_update_configuration(
 
         logger.info("Received full configuration update")
 
-        # TODO: Determine which bridge this update belongs to
-        domain_data = hass.data.get(DOMAIN, {})
-        bridge = None
-
-        for uid, br in domain_data.items():
-            if uid in br._websocket_connections:
-                bridge = br
-                break
+        # Find the bridge for this connection
+        bridge, unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
             logger.warning("No bridge found for configuration update")

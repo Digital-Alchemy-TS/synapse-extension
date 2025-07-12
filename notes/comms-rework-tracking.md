@@ -4,7 +4,7 @@
 
 **Goal**: Replace the current event bus abuse with proper WebSocket API communication between Home Assistant and external Synapse applications.
 
-**Current Status**: Validation logic complete - registration validation with error codes implemented.
+**Current Status**: Heartbeat implementation complete - hash drift detection and configuration resync logic implemented.
 
 **Timeline**:
 - Phase 1: Python rework (current)
@@ -30,6 +30,7 @@
 - ✅ **ADDED**: Bridge methods for handling WebSocket communication
 - ✅ **ADDED**: Connection tracking and management
 - ✅ **ADDED**: Validation logic with error codes
+- ✅ **ADDED**: Heartbeat monitoring with hash drift detection
 
 ### TypeScript Side (Reference Libraries)
 **Location**: `src/`
@@ -61,8 +62,8 @@
 10. **App enters "runtime" mode**
 
 ### Runtime Operation
-- **Heartbeat every 30 seconds** with current hash
-- **Hash drift detection** triggers configuration resync request
+- **Heartbeat every 30 seconds** with current hash ✅ IMPLEMENTED
+- **Hash drift detection** triggers configuration resync request ✅ IMPLEMENTED
 - **Entity patches** for state changes, icons, enable/disable, related entities
 - **No hash changes** for runtime patches
 
@@ -90,6 +91,8 @@
 - ✅ Gutted old communication code
 - ✅ **ADDED**: Validation logic with error codes
 - ✅ **ADDED**: Registration validation methods
+- ✅ **ADDED**: Heartbeat monitoring with timeout handling
+- ✅ **ADDED**: Hash drift detection and configuration resync logic
 
 #### 1.3 Update Integration Setup ✅ COMPLETE
 **File**: `custom_components/synapse/__init__.py` ✅ UPDATED
@@ -106,6 +109,16 @@
 - ✅ Added `SynapseErrorCodes` enum
 - ✅ Defined all error codes for WebSocket communication
 - ✅ Comprehensive error code documentation
+
+#### 1.5 Heartbeat System ✅ COMPLETE
+**File**: `custom_components/synapse/synapse/bridge.py` ✅ UPDATED
+
+**Changes completed**:
+- ✅ Heartbeat timer management (30-second timeout)
+- ✅ Hash drift detection logic
+- ✅ Configuration resync requests
+- ✅ Connection health monitoring
+- ✅ Online/offline state tracking
 
 ### Phase 2: TypeScript Library Updates
 
@@ -144,6 +157,8 @@
 - [x] **Validation logic implemented** with error codes
 - [x] **Error code system created** (`SynapseErrorCodes`)
 - [x] **Registration validation complete** (unique_id checks, app registration checks)
+- [x] **Heartbeat system implemented** (30-second monitoring, hash drift detection)
+- [x] **Configuration resync logic** (hash drift triggers config update requests)
 
 #### 🔄 In Progress
 - [ ] Implement hash storage and comparison logic
@@ -178,6 +193,7 @@
 4. **Hash Synchronization**: Test hash comparison and resync
 5. **Connection Management**: Test unique_id validation
 6. **Error Handling**: Test all error codes and validation scenarios
+7. **Heartbeat Testing**: Test heartbeat timing and hash drift detection
 
 ### TypeScript Testing
 1. **Unit Tests**: Test WebSocket client methods
@@ -215,10 +231,24 @@ class SynapseErrorCodes:
     # ... additional error codes
 ```
 
+### Heartbeat System ✅ IMPLEMENTED
+```python
+# Heartbeat response with hash drift detection
+{
+  "success": True,
+  "heartbeat_received": True,
+  "hash_drift_detected": True,
+  "request_configuration": True,
+  "message": "Hash drift detected - configuration update requested",
+  "last_known_hash": "abc123...",
+  "current_hash": "def456..."
+}
+```
+
 ### Hash Synchronization
 - **Hash Generation**: Based on complete app configuration
-- **Hash Comparison**: Used to detect configuration changes
-- **Resync Trigger**: When hash drift is detected
+- **Hash Comparison**: Used to detect configuration changes ✅ IMPLEMENTED
+- **Resync Trigger**: When hash drift is detected ✅ IMPLEMENTED
 - **Runtime Patches**: Don't change hash, only for state/config updates
 
 ### Authentication Strategy
@@ -275,7 +305,8 @@ class SynapseErrorCodes:
 2. [x] Update bridge class to use WebSocket ✅
 3. [x] Implement basic "hello world" reception ✅
 4. [x] Implement validation logic with error codes ✅
-5. [ ] Test basic communication
+5. [x] Implement heartbeat system with hash drift detection ✅
+6. [ ] Test basic communication
 
 ### Short Term (Next Week)
 1. [ ] Complete Python implementation
@@ -302,10 +333,10 @@ class SynapseErrorCodes:
 - Backward compatibility strategy
 - Error handling approach ✅ DECIDED
 - Testing methodology
-- Hash synchronization strategy
+- Hash synchronization strategy ✅ IMPLEMENTED
 
 ---
 
 **Last Updated**: [Current Date]
-**Status**: Validation Logic Complete - Error Codes Implemented
-**Next Review**: After hash synchronization implementation
+**Status**: Heartbeat System Complete - Hash Drift Detection Implemented
+**Next Review**: After configuration sync implementation

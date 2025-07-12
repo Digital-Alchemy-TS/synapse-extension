@@ -90,6 +90,7 @@ class SynapseBridge:
         self._websocket_connections: Dict[str, Any] = {}
         self.online: bool = False
         self._heartbeat_timer: Optional[asyncio.TimerHandle] = None
+        self._last_heartbeat_time: Optional[float] = None
 
         self.logger.info(f"{self.app_name} bridge initialized - WebSocket ready")
 
@@ -106,12 +107,19 @@ class SynapseBridge:
         """Register a WebSocket connection for an app."""
         self.logger.info(f"Registering WebSocket connection for {unique_id}")
         self._websocket_connections[unique_id] = connection
+        self._reset_heartbeat_timer()
 
     def unregister_websocket_connection(self, unique_id: str) -> None:
         """Unregister a WebSocket connection for an app."""
         self.logger.info(f"Unregistering WebSocket connection for {unique_id}")
         if unique_id in self._websocket_connections:
             del self._websocket_connections[unique_id]
+            if not self._websocket_connections:
+                # No more connections, stop heartbeat monitoring
+                if self._heartbeat_timer:
+                    self._heartbeat_timer.cancel()
+                    self._heartbeat_timer = None
+                self.online = False
 
     def is_unique_id_connected(self, unique_id: str) -> bool:
         """
@@ -155,6 +163,28 @@ class SynapseBridge:
             str: The last known hash or empty string if not found
         """
         return self._hash_dict.get(unique_id, "")
+
+    def _reset_heartbeat_timer(self) -> None:
+        """Reset the heartbeat timer to wait for the next heartbeat."""
+        if self._heartbeat_timer:
+            self._heartbeat_timer.cancel()
+
+        # Set timer for APP_OFFLINE_DELAY seconds
+        self._heartbeat_timer = self.hass.loop.call_later(
+            APP_OFFLINE_DELAY,
+            self._handle_heartbeat_timeout
+        )
+
+    def _handle_heartbeat_timeout(self) -> None:
+        """Handle heartbeat timeout - mark app as offline."""
+        if not self._websocket_connections:
+            return  # No connections to monitor
+
+        self.logger.warning(f"{self.app_name} heartbeat timeout - marking offline")
+        self.online = False
+
+        # Fire health event to update entity availability
+        self.hass.bus.async_fire(f"{DOMAIN}/health/{self.app_name}")
 
     async def handle_registration(self, unique_id: str, app_metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -208,18 +238,56 @@ class SynapseBridge:
     async def handle_heartbeat(self, unique_id: str, current_hash: str) -> Dict[str, Any]:
         """
         Handle heartbeat from app via WebSocket.
+
+        Args:
+            unique_id: The unique identifier for the app
+            current_hash: The current configuration hash from the app
+
+        Returns:
+            Dict containing heartbeat response and any configuration requests
         """
+        import time
+
         self.logger.debug(f"Handling heartbeat for {unique_id} with hash: {current_hash}")
 
-        # TODO: Implement hash drift detection
-        # 1. Compare current hash with stored hash
-        # 2. If different, request configuration update
+        # Update heartbeat tracking
+        self._last_heartbeat_time = time.time()
+        self._reset_heartbeat_timer()
 
-        # For now, just acknowledge receipt
+        # Check if this is the first heartbeat (going from offline to online)
+        was_offline = not self.online
+        self.online = True
+
+        if was_offline:
+            self.logger.info(f"{self.app_name} restored contact via heartbeat")
+            # Fire health event to update entity availability
+            self.hass.bus.async_fire(f"{DOMAIN}/health/{self.app_name}")
+
+        # Get the last known hash for this app
+        last_known_hash = self.get_last_known_hash(unique_id)
+
+        # Check for hash drift
+        if last_known_hash and current_hash != last_known_hash:
+            self.logger.info(f"Hash drift detected for {unique_id}: {last_known_hash} -> {current_hash}")
+
+            # Request configuration update
+            return {
+                "success": True,
+                "heartbeat_received": True,
+                "hash_drift_detected": True,
+                "request_configuration": True,
+                "message": "Hash drift detected - configuration update requested",
+                "last_known_hash": last_known_hash,
+                "current_hash": current_hash
+            }
+
+        # Normal heartbeat - no hash drift
         return {
             "success": True,
             "heartbeat_received": True,
-            "message": "Heartbeat received - hash comparison pending"
+            "hash_drift_detected": False,
+            "request_configuration": False,
+            "message": "Heartbeat received - hash unchanged"
         }
 
     async def handle_entity_update(self, entity_unique_id: str, changes: Dict[str, Any]) -> Dict[str, Any]:
