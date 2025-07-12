@@ -386,19 +386,56 @@ class SynapseBridge:
     async def handle_entity_update(self, entity_unique_id: str, changes: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle entity update from app via WebSocket.
+
+        This processes runtime entity patches (state, icon, attributes, etc.)
+        that don't change the configuration hash.
         """
         self.logger.debug(f"Handling entity update for {entity_unique_id}: {changes}")
 
-        # TODO: Implement entity update logic
-        # 1. Validate entity exists
-        # 2. Apply changes
-        # 3. Update entity state
+        try:
+            # Validate entity exists in our tracking
+            entity_found = False
+            for domain, entities in self._current_entities.items():
+                if entity_unique_id in entities:
+                    entity_found = True
+                    break
 
-        return {
-            "success": True,
-            "updated": True,
-            "message": "Entity update received - implementation pending"
-        }
+            if not entity_found:
+                self.logger.warning(f"Entity {entity_unique_id} not found in current entities")
+                return {
+                    "success": False,
+                    "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                    "message": f"Entity {entity_unique_id} not found",
+                    "entity_unique_id": entity_unique_id
+                }
+
+            # Fire entity update event for the specific entity
+            self.hass.bus.async_fire(
+                self.event_name("update"),
+                {
+                    "unique_id": entity_unique_id,
+                    "data": changes,
+                    "timestamp": self.hass.states.get("sensor.time").state if self.hass.states.get("sensor.time") else None
+                }
+            )
+
+            self.logger.debug(f"Entity update event fired for {entity_unique_id}")
+
+            return {
+                "success": True,
+                "updated": True,
+                "message": f"Entity update processed for {entity_unique_id}",
+                "entity_unique_id": entity_unique_id
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error handling entity update for {entity_unique_id}: {e}")
+            return {
+                "success": False,
+                "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                "message": f"Entity update failed: {str(e)}",
+                "entity_unique_id": entity_unique_id
+            }
 
     async def handle_configuration_update(self, configuration: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -612,6 +649,13 @@ class SynapseBridge:
                     name=entity_data.get("name"),
                     device_id=self._get_device_id_for_entity(entity_data)
                 )
+
+                # Store entity data for runtime updates
+                self._entity_registry[unique_id] = {
+                    "domain": domain,
+                    "data": entity_data,
+                    "config_entry_id": self.config_entry.entry_id
+                }
 
                 self.logger.debug(f"Processed entity: {entity_id}")
 

@@ -123,7 +123,15 @@ class SynapseBaseEntity(Entity):
         # easier to debug + less useless event handle executions
         if event.data.get("unique_id") == self.entity.get("unique_id"):
             self.logger.debug(f"{self.bridge.app_name}:{self.entity.get('name')} receive update")
-            self.entity = event.data.get("data")
+
+            # Merge the incoming changes with the existing entity data
+            incoming_data = event.data.get("data", {})
+            if isinstance(incoming_data, dict):
+                # Update the entity data with the new values
+                self.entity.update(incoming_data)
+                self.logger.debug(f"Updated entity data: {incoming_data}")
+
+            # Trigger a state update to reflect the changes
             self.async_write_ha_state()
 
     @callback

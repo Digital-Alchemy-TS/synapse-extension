@@ -159,6 +159,10 @@
 - [x] **Registration validation complete** (unique_id checks, app registration checks)
 - [x] **Heartbeat system implemented** (30-second monitoring, hash drift detection)
 - [x] **Configuration resync logic** (hash drift triggers config update requests)
+- [x] **Entity registration mechanism** (device and entity registry updates)
+- [x] **Storage.dump() processing** (domain-based entity arrays)
+- [x] **Entity update handling** (runtime patches for state, icon, attributes)
+- [x] **Entity availability** (proper online/offline state reflection)
 
 #### 🔄 In Progress
 - [ ] Implement hash storage and comparison logic
