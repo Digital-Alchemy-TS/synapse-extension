@@ -13,6 +13,7 @@ the synapse command namespace. The bridge handles:
 2. Hash-based configuration synchronization
 3. Runtime entity updates
 4. Heartbeat monitoring
+5. Connection timeout and recovery
 
 ## Connection & Registration
 
@@ -29,11 +30,13 @@ the synapse command namespace. The bridge handles:
 - Hash drift detection triggers configuration resync
 - Entity patches for state/visual/config changes
 - No hash changes for runtime patches
+- Connection timeout detection and recovery
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from homeassistant.config_entries import ConfigEntry
@@ -62,6 +65,10 @@ from .const import (
     SynapseMetadata,
     SynapseErrorCodes,
     APP_OFFLINE_DELAY,
+    CONNECTION_TIMEOUT,
+    HEARTBEAT_TIMEOUT,
+    RECONNECT_DELAY,
+    MAX_RECONNECT_ATTEMPTS,
 )
 
 
@@ -71,6 +78,7 @@ class SynapseBridge:
     - Provide helper methods for entities
     - Create online sensor
     - Tracks app heartbeat
+    - Manages connection timeouts and recovery
     """
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
         """Initialize the bridge"""
@@ -97,6 +105,9 @@ class SynapseBridge:
 
         # WebSocket connection tracking
         self._websocket_connections: Dict[str, Any] = {}
+        self._connection_timestamps: Dict[str, float] = {}  # Track when connections were established
+        self._connection_timeout_timers: Dict[str, asyncio.TimerHandle] = {}  # Connection timeout timers
+        self._reconnect_attempts: Dict[str, int] = {}  # Track reconnection attempts
         self.online: bool = False
         self._heartbeat_timer: Optional[asyncio.TimerHandle] = None
         self._last_heartbeat_time: Optional[float] = None
@@ -124,6 +135,12 @@ class SynapseBridge:
         if self._heartbeat_timer:
             self._heartbeat_timer.cancel()
 
+        # Clean up all connection timers
+        for timer in self._connection_timeout_timers.values():
+            if timer:
+                timer.cancel()
+        self._connection_timeout_timers.clear()
+
         # Clean up WebSocket connections
         self._websocket_connections.clear()
 
@@ -131,6 +148,12 @@ class SynapseBridge:
         """Register a WebSocket connection for an app."""
         self.logger.info(f"Registering WebSocket connection for {unique_id}")
         self._websocket_connections[unique_id] = connection
+        self._connection_timestamps[unique_id] = time.time()
+        self._reconnect_attempts[unique_id] = 0
+
+        # Set up connection timeout timer
+        self._setup_connection_timeout(unique_id)
+
         self._reset_heartbeat_timer()
 
     def unregister_websocket_connection(self, unique_id: str) -> None:
@@ -138,12 +161,61 @@ class SynapseBridge:
         self.logger.info(f"Unregistering WebSocket connection for {unique_id}")
         if unique_id in self._websocket_connections:
             del self._websocket_connections[unique_id]
-            if not self._websocket_connections:
-                # No more connections, stop heartbeat monitoring
-                if self._heartbeat_timer:
-                    self._heartbeat_timer.cancel()
-                    self._heartbeat_timer = None
-                self.online = False
+
+        # Clean up connection tracking
+        if unique_id in self._connection_timestamps:
+            del self._connection_timestamps[unique_id]
+
+        # Cancel connection timeout timer
+        if unique_id in self._connection_timeout_timers:
+            timer = self._connection_timeout_timers[unique_id]
+            if timer:
+                timer.cancel()
+            del self._connection_timeout_timers[unique_id]
+
+        # Reset reconnection attempts
+        if unique_id in self._reconnect_attempts:
+            del self._reconnect_attempts[unique_id]
+
+        if not self._websocket_connections:
+            # No more connections, stop heartbeat monitoring
+            if self._heartbeat_timer:
+                self._heartbeat_timer.cancel()
+                self._heartbeat_timer = None
+            self.online = False
+
+    def _setup_connection_timeout(self, unique_id: str) -> None:
+        """Set up a connection timeout timer for a specific connection."""
+        # Cancel existing timer if any
+        if unique_id in self._connection_timeout_timers:
+            timer = self._connection_timeout_timers[unique_id]
+            if timer:
+                timer.cancel()
+
+        # Set new timeout timer
+        timer = self.hass.loop.call_later(
+            CONNECTION_TIMEOUT,
+            lambda: self._handle_connection_timeout(unique_id)
+        )
+        self._connection_timeout_timers[unique_id] = timer
+
+    def _handle_connection_timeout(self, unique_id: str) -> None:
+        """Handle connection timeout for a specific connection."""
+        if unique_id not in self._websocket_connections:
+            return  # Connection already cleaned up
+
+        self.logger.warning(f"Connection timeout for {unique_id} - no registration within {CONNECTION_TIMEOUT} seconds")
+
+        # Clean up the connection
+        self.unregister_websocket_connection(unique_id)
+
+        # Fire health event to update entity availability
+        self.hass.bus.async_fire(self.event_name("health"))
+
+    def _reset_connection_timeout(self, unique_id: str) -> None:
+        """Reset the connection timeout timer for a specific connection."""
+        if unique_id in self._websocket_connections:
+            self._setup_connection_timeout(unique_id)
 
     async def send_to_app(self, unique_id: str, message: Dict[str, Any]) -> bool:
         """
@@ -171,7 +243,53 @@ class SynapseBridge:
             return True
         except Exception as e:
             self.logger.error(f"Failed to send message to {unique_id}: {e}")
+            # Mark connection as potentially broken
+            await self._handle_connection_failure(unique_id, str(e))
             return False
+
+    async def _handle_connection_failure(self, unique_id: str, error: str) -> None:
+        """
+        Handle connection failure and attempt recovery.
+
+        Args:
+            unique_id: The unique identifier for the failed connection
+            error: The error that caused the failure
+        """
+        self.logger.warning(f"Connection failure for {unique_id}: {error}")
+
+        # Increment reconnection attempts
+        attempts = self._reconnect_attempts.get(unique_id, 0) + 1
+        self._reconnect_attempts[unique_id] = attempts
+
+        if attempts <= MAX_RECONNECT_ATTEMPTS:
+            self.logger.info(f"Attempting reconnection for {unique_id} (attempt {attempts}/{MAX_RECONNECT_ATTEMPTS})")
+
+            # Calculate delay with exponential backoff
+            delay = RECONNECT_DELAY * (2 ** (attempts - 1))
+
+            # Schedule reconnection attempt
+            self.hass.loop.call_later(
+                delay,
+                lambda: self._attempt_reconnection(unique_id)
+            )
+        else:
+            self.logger.error(f"Max reconnection attempts reached for {unique_id} - giving up")
+            # Clean up the connection
+            self.unregister_websocket_connection(unique_id)
+            # Fire health event
+            self.hass.bus.async_fire(self.event_name("health"))
+
+    def _attempt_reconnection(self, unique_id: str) -> None:
+        """Attempt to reconnect a failed connection."""
+        if unique_id not in self._websocket_connections:
+            # Connection was already cleaned up
+            return
+
+        self.logger.info(f"Reconnection attempt for {unique_id}")
+
+        # Reset reconnection attempts if we're back online
+        if self.online:
+            self._reconnect_attempts[unique_id] = 0
 
     def is_unique_id_connected(self, unique_id: str) -> bool:
         """
@@ -203,6 +321,34 @@ class SynapseBridge:
                 return True
 
         return False
+
+    def get_connection_health(self, unique_id: str) -> Dict[str, Any]:
+        """
+        Get health information for a specific connection.
+
+        Args:
+            unique_id: The unique identifier for the connection
+
+        Returns:
+            Dict containing connection health information
+        """
+        if unique_id not in self._websocket_connections:
+            return {
+                "connected": False,
+                "error": "Connection not found"
+            }
+
+        connection_time = self._connection_timestamps.get(unique_id, 0)
+        reconnect_attempts = self._reconnect_attempts.get(unique_id, 0)
+        uptime = time.time() - connection_time if connection_time > 0 else 0
+
+        return {
+            "connected": True,
+            "uptime_seconds": int(uptime),
+            "reconnect_attempts": reconnect_attempts,
+            "online": self.online,
+            "last_heartbeat": self._last_heartbeat_time
+        }
 
     def _load_persisted_hashes(self) -> None:
         """Load persisted hashes from config entry data."""
@@ -347,8 +493,16 @@ class SynapseBridge:
             if not sent_successfully:
                 self.logger.warning(f"Failed to send configuration request during registration for {unique_id}")
 
-        # Step 4: Registration successful
+        # Step 4: Registration successful - reset connection timeout and reconnection attempts
         self.logger.info(f"Registration successful for {unique_id}")
+
+        # Reset connection timeout since registration was successful
+        self._reset_connection_timeout(unique_id)
+
+        # Reset reconnection attempts on successful registration
+        if unique_id in self._reconnect_attempts:
+            self._reconnect_attempts[unique_id] = 0
+
         return {
             "success": True,
             "registered": True,
@@ -481,7 +635,7 @@ class SynapseBridge:
             if not isinstance(changes, dict):
                 return {
                     "success": False,
-                    "error_code": SynapseErrorCodes.UPDATE_FAILED,
+                    "error_code": SynapseErrorCodes.INVALID_MESSAGE_FORMAT,
                     "message": "Changes must be a dictionary",
                     "entity_unique_id": entity_unique_id
                 }
@@ -499,8 +653,8 @@ class SynapseBridge:
                 self.logger.warning(f"Entity {entity_unique_id} not found in current entities")
                 return {
                     "success": False,
-                    "error_code": SynapseErrorCodes.UPDATE_FAILED,
-                    "message": f"Entity {entity_unique_id} not found",
+                    "error_code": SynapseErrorCodes.ENTITY_VALIDATION_FAILED,
+                    "message": f"Entity {entity_unique_id} not found in current configuration",
                     "entity_unique_id": entity_unique_id
                 }
 
@@ -515,86 +669,117 @@ class SynapseBridge:
                 self.logger.warning(f"Invalid update fields for {entity_unique_id}: {invalid_fields}")
                 return {
                     "success": False,
-                    "error_code": SynapseErrorCodes.UPDATE_FAILED,
-                    "message": f"Invalid update fields: {list(invalid_fields)}",
+                    "error_code": SynapseErrorCodes.ENTITY_VALIDATION_FAILED,
+                    "message": f"Invalid update fields: {list(invalid_fields)}. Allowed fields: {list(allowed_update_fields)}",
                     "entity_unique_id": entity_unique_id
                 }
 
-            # Validate specific field types
+            # Validate specific field types and values
+            validation_errors = []
+
             for field, value in changes.items():
                 if value is not None:  # Allow setting to None for removal
-                    if field == "name" and not isinstance(value, str):
-                        return {
-                            "success": False,
-                            "error_code": SynapseErrorCodes.UPDATE_FAILED,
-                            "message": "name must be a string",
-                            "entity_unique_id": entity_unique_id
-                        }
-                    elif field == "icon" and not isinstance(value, str):
-                        return {
-                            "success": False,
-                            "error_code": SynapseErrorCodes.UPDATE_FAILED,
-                            "message": "icon must be a string",
-                            "entity_unique_id": entity_unique_id
-                        }
-                    elif field == "attributes" and not isinstance(value, dict):
-                        return {
-                            "success": False,
-                            "error_code": SynapseErrorCodes.UPDATE_FAILED,
-                            "message": "attributes must be a dictionary",
-                            "entity_unique_id": entity_unique_id
-                        }
-                    elif field == "labels" and not isinstance(value, list):
-                        return {
-                            "success": False,
-                            "error_code": SynapseErrorCodes.UPDATE_FAILED,
-                            "message": "labels must be a list",
-                            "entity_unique_id": entity_unique_id
-                        }
-                    elif field == "area_id" and not isinstance(value, str):
-                        return {
-                            "success": False,
-                            "error_code": SynapseErrorCodes.UPDATE_FAILED,
-                            "message": "area_id must be a string",
-                            "entity_unique_id": entity_unique_id
-                        }
+                    if field == "name":
+                        if not isinstance(value, str):
+                            validation_errors.append("name must be a string")
+                        elif len(value.strip()) == 0:
+                            validation_errors.append("name cannot be empty")
+                        elif len(value) > 255:
+                            validation_errors.append("name cannot exceed 255 characters")
+
+                    elif field == "icon":
+                        if not isinstance(value, str):
+                            validation_errors.append("icon must be a string")
+                        elif len(value.strip()) == 0:
+                            validation_errors.append("icon cannot be empty")
+                        elif not value.startswith("mdi:"):
+                            validation_errors.append("icon must start with 'mdi:'")
+
+                    elif field == "attributes":
+                        if not isinstance(value, dict):
+                            validation_errors.append("attributes must be a dictionary")
+                        else:
+                            # Validate individual attributes
+                            for attr_key, attr_value in value.items():
+                                if not isinstance(attr_key, str):
+                                    validation_errors.append(f"Attribute key '{attr_key}' must be a string")
+                                    break
+                                if len(attr_key) > 255:
+                                    validation_errors.append(f"Attribute key '{attr_key}' cannot exceed 255 characters")
+                                    break
+
+                                # Check for JSON serializable values
+                                if isinstance(attr_value, (dict, list)):
+                                    try:
+                                        import json
+                                        json.dumps(attr_value)
+                                    except (TypeError, ValueError):
+                                        validation_errors.append(f"Attribute value for '{attr_key}' is not JSON serializable")
+                                        break
+
+                    elif field == "labels":
+                        if not isinstance(value, list):
+                            validation_errors.append("labels must be a list")
+                        else:
+                            for label in value:
+                                if not isinstance(label, str):
+                                    validation_errors.append("All labels must be strings")
+                                    break
+                                if len(label) > 255:
+                                    validation_errors.append(f"Label '{label}' cannot exceed 255 characters")
+                                    break
+
+                    elif field == "area_id":
+                        if not isinstance(value, str):
+                            validation_errors.append("area_id must be a string")
+                        elif len(value.strip()) == 0:
+                            validation_errors.append("area_id cannot be empty")
+
+                    elif field == "state":
+                        # State validation depends on entity domain
+                        if entity_domain == "sensor":
+                            # Sensors can have numeric or string states
+                            if not isinstance(value, (str, int, float)):
+                                validation_errors.append("sensor state must be a string, integer, or float")
+                        elif entity_domain == "binary_sensor":
+                            # Binary sensors typically have "on"/"off" states
+                            if not isinstance(value, str) or value not in ["on", "off", "unavailable"]:
+                                validation_errors.append("binary_sensor state must be 'on', 'off', or 'unavailable'")
+                        elif entity_domain == "switch":
+                            # Switches typically have "on"/"off" states
+                            if not isinstance(value, str) or value not in ["on", "off", "unavailable"]:
+                                validation_errors.append("switch state must be 'on', 'off', or 'unavailable'")
+                        else:
+                            # For other domains, allow string states
+                            if not isinstance(value, str):
+                                validation_errors.append("state must be a string")
 
             # Validate entity_category if present
             entity_category = changes.get("entity_category")
             if entity_category is not None:
                 valid_categories = ["config", "diagnostic"]
                 if entity_category not in valid_categories:
-                    return {
-                        "success": False,
-                        "error_code": SynapseErrorCodes.UPDATE_FAILED,
-                        "message": f"entity_category must be one of {valid_categories}",
-                        "entity_unique_id": entity_unique_id
-                    }
+                    validation_errors.append(f"entity_category must be one of {valid_categories}")
 
-            # Validate attributes if present
-            attributes = changes.get("attributes")
-            if attributes is not None:
-                for key, value in attributes.items():
-                    if not isinstance(key, str):
-                        return {
-                            "success": False,
-                            "error_code": SynapseErrorCodes.UPDATE_FAILED,
-                            "message": "Attribute key must be a string",
-                            "entity_unique_id": entity_unique_id
-                        }
+            # Validate device_class if present
+            device_class = changes.get("device_class")
+            if device_class is not None:
+                if not isinstance(device_class, str):
+                    validation_errors.append("device_class must be a string")
+                elif len(device_class.strip()) == 0:
+                    validation_errors.append("device_class cannot be empty")
 
-                    # Check for JSON serializable values
-                    if isinstance(value, (dict, list)):
-                        try:
-                            import json
-                            json.dumps(value)
-                        except (TypeError, ValueError):
-                            return {
-                                "success": False,
-                                "error_code": SynapseErrorCodes.UPDATE_FAILED,
-                                "message": f"Attribute value for '{key}' is not JSON serializable",
-                                "entity_unique_id": entity_unique_id
-                            }
+            # Check for validation errors
+            if validation_errors:
+                error_message = "; ".join(validation_errors)
+                self.logger.warning(f"Entity update validation failed for {entity_unique_id}: {error_message}")
+                return {
+                    "success": False,
+                    "error_code": SynapseErrorCodes.ENTITY_VALIDATION_FAILED,
+                    "message": f"Validation failed: {error_message}",
+                    "entity_unique_id": entity_unique_id,
+                    "validation_errors": validation_errors
+                }
 
             # Fire entity update event for the specific entity
             self.hass.bus.async_fire(
@@ -612,7 +797,8 @@ class SynapseBridge:
                 "success": True,
                 "updated": True,
                 "message": f"Entity update processed for {entity_unique_id}",
-                "entity_unique_id": entity_unique_id
+                "entity_unique_id": entity_unique_id,
+                "domain": entity_domain
             }
 
         except Exception as e:
@@ -926,14 +1112,13 @@ class SynapseBridge:
                 if not isinstance(key, str):
                     return False, f"Attribute key must be a string, got {type(key).__name__}"
 
-                # Check for invalid attribute value types
-                if isinstance(value, (dict, list)):
-                    # These are valid but should be JSON serializable
-                    try:
-                        import json
-                        json.dumps(value)
-                    except (TypeError, ValueError):
-                        return False, f"Attribute value for '{key}' is not JSON serializable"
+                    # Check for invalid attribute value types
+                    if isinstance(value, (dict, list)):
+                        try:
+                            import json
+                            json.dumps(value)
+                        except (TypeError, ValueError):
+                            return False, f"Attribute value for '{key}' is not JSON serializable"
 
         return True, ""
 

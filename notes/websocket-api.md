@@ -1,390 +1,136 @@
-# WebSocket API Implementation
+# WebSocket API Reference
 
 ## Overview
-Replace the current event bus abuse with Home Assistant's proper WebSocket API for external communication.
 
-## 🔴 Current Problem
+The Synapse Extension uses Home Assistant's WebSocket API for secure, bidirectional communication between NodeJS applications and Home Assistant.
 
-The integration currently abuses the Home Assistant event bus for external communication:
-- **Not intended purpose**: Event bus is for internal HA communication
-- **Performance issues**: Overhead from event processing
-- **Security concerns**: No authentication or validation
-- **Scalability problems**: Doesn't handle multiple connections well
-- **Non-standard pattern**: Goes against HA design principles
+## Why WebSocket API?
 
-## ✅ Solution: WebSocket API
-
-Home Assistant provides a proper WebSocket API specifically designed for external communication.
-
-### Key Benefits
-- **Bidirectional communication**: Apps can send commands AND receive responses
-- **Proper authentication**: Can implement API keys, tokens, etc.
-- **Better performance**: Direct communication without event bus overhead
-- **Standard pattern**: This is how other integrations handle external communication
+- **Bidirectional Communication**: Apps can send commands AND receive responses
+- **Better Performance**: Direct communication without event bus overhead
+- **Standard Pattern**: Uses Home Assistant's standard WebSocket API
 - **Scalable**: Handles multiple connections efficiently
-- **Error handling**: Proper error responses and status codes
+- **Security**: Rate limiting, validation, and connection management
 
-## 📋 Implementation Plan
+## Supported Commands
 
-### Phase 1: Create WebSocket Command Handlers
+### App → Home Assistant
 
-#### 1.1 Create `websocket.py` file
-```python
-# custom_components/synapse/websocket.py
-from __future__ import annotations
-from typing import Any
-import voluptuous as vol
+| Command | Purpose | Rate Limit | Size Limit |
+|---------|---------|------------|------------|
+| `synapse/register` | App registration | 10/min | 50KB |
+| `synapse/heartbeat` | Health monitoring | 120/min | 1KB |
+| `synapse/update_entity` | Entity updates | 300/min | 10KB |
+| `synapse/update_configuration` | Full config sync | 5/min | 1MB |
+| `synapse/going_offline` | Graceful shutdown | 10/min | 1KB |
+| `synapse/get_health` | Health check | 120/min | 1KB |
 
-from homeassistant.components import websocket_api
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv
+### Home Assistant → App
 
-from .synapse.const import DOMAIN
+| Event Type | Purpose | Trigger |
+|------------|---------|---------|
+| `synapse/request_configuration` | Request config sync | Hash drift detected |
+| `synapse/connection_lost` | Connection lost | Timeout or failure |
+| `synapse/reconnection_failed` | Reconnection failed | Max attempts reached |
 
-DOMAIN_WS = f"{DOMAIN}_ws"
+## Security Features
 
-@websocket_api.websocket_command({
-    vol.Required("type"): "synapse/register",
-    vol.Required("app_name"): str,
-    vol.Required("unique_id"): str,
-    vol.Required("data"): dict,
-})
-@websocket_api.async_response
-async def handle_synapse_register(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
-) -> None:
-    """Handle synapse app registration."""
-    try:
-        # Validate the incoming data
-        # Register the app
-        # Return success response
-        connection.send_result(msg["id"], {"success": True, "registered": True})
-    except Exception as e:
-        connection.send_error(msg["id"], "registration_failed", str(e))
+### Rate Limiting
+- **Per-command limits**: Different limits for different command types
+- **Sliding window**: 60-second window for rate limit tracking
+- **Automatic cleanup**: Old tracking entries are automatically removed
+- **Configurable limits**: Easy to adjust limits based on requirements
 
-@websocket_api.websocket_command({
-    vol.Required("type"): "synapse/update_entity",
-    vol.Required("unique_id"): str,
-    vol.Required("entity_data"): dict,
-})
-@websocket_api.async_response
-async def handle_synapse_update_entity(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
-) -> None:
-    """Handle entity updates from synapse apps."""
-    try:
-        # Update the entity
-        # Return success response
-        connection.send_result(msg["id"], {"success": True, "updated": True})
-    except Exception as e:
-        connection.send_error(msg["id"], "update_failed", str(e))
+### Message Validation
+- **Size limits**: Prevents DoS attacks through oversized messages
+- **Schema validation**: Ensures message format compliance
+- **Type validation**: Validates field types and values
+- **Domain-specific validation**: Entity-specific validation rules
 
-@websocket_api.websocket_command({
-    vol.Required("type"): "synapse/heartbeat",
-    vol.Required("app_name"): str,
-    vol.Optional("hash"): str,
-})
-@websocket_api.async_response
-async def handle_synapse_heartbeat(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
-) -> None:
-    """Handle heartbeat from synapse apps."""
-    try:
-        # Process heartbeat
-        # Check for hash changes
-        # Return success response
-        connection.send_result(msg["id"], {"success": True, "heartbeat_received": True})
-    except Exception as e:
-        connection.send_error(msg["id"], "heartbeat_failed", str(e))
+### Connection Management
+- **Timeout handling**: Automatic cleanup of stale connections
+- **Reconnection logic**: Exponential backoff for failed connections
+- **Health monitoring**: Real-time connection health tracking
+- **Graceful shutdown**: Proper cleanup on app shutdown
 
-@websocket_api.websocket_command({
-    vol.Required("type"): "synapse/discovery",
-})
-@websocket_api.async_response
-async def handle_synapse_discovery(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
-) -> None:
-    """Handle discovery requests from synapse apps."""
-    try:
-        # Return list of registered apps
-        apps = []  # Get from bridge registry
-        connection.send_result(msg["id"], {"apps": apps})
-    except Exception as e:
-        connection.send_error(msg["id"], "discovery_failed", str(e))
-```
+## Error Handling
 
-#### 1.2 Register WebSocket Commands
-```python
-# In custom_components/synapse/__init__.py
-async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the Synapse component."""
-    # Register WebSocket commands
-    websocket_api.async_register_command(hass, handle_synapse_register)
-    websocket_api.async_register_command(hass, handle_synapse_update_entity)
-    websocket_api.async_register_command(hass, handle_synapse_heartbeat)
-    websocket_api.async_register_command(hass, handle_synapse_discovery)
+### Error Response Format
+All error responses include:
+- `error_code`: Machine-readable error identifier
+- `message`: Human-readable error description
+- `unique_id`: App identifier for correlation
 
-    return True
-```
+### Common Error Codes
+- `rate_limit_exceeded`: Too many requests
+- `message_too_large`: Message exceeds size limit
+- `invalid_message_format`: Invalid message structure
+- `bridge_not_found`: No bridge found (usually temporary)
+- `entity_validation_failed`: Entity data validation failed
 
-### Phase 2: Update Bridge to Use WebSocket
+## Connection Lifecycle
 
-#### 2.1 Modify Bridge Class
-```python
-# custom_components/synapse/synapse/bridge.py
-class SynapseBridge:
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
-        # ... existing init code ...
+1. **Initial Connection**: App connects to WebSocket API
+2. **Registration**: App sends registration with metadata
+3. **Validation**: System validates app registration and connection
+4. **Hash Sync**: Compare configuration hashes and sync if needed
+5. **Runtime**: App sends heartbeats and entity updates
+6. **Shutdown**: App sends going offline message or timeout occurs
 
-        # Add WebSocket connection tracking
-        self._websocket_connections: dict[str, websocket_api.ActiveConnection] = {}
+## Health Monitoring
 
-    async def register_websocket_connection(self, app_name: str, connection: websocket_api.ActiveConnection) -> None:
-        """Register a WebSocket connection for an app."""
-        self._websocket_connections[app_name] = connection
+Use the `synapse/get_health` command to monitor connection health. Response includes:
+- Connection status and uptime
+- Reconnection attempt count
+- Online status and last heartbeat time
 
-    async def send_to_app(self, app_name: str, message: dict) -> None:
-        """Send a message to a specific app via WebSocket."""
-        if app_name in self._websocket_connections:
-            connection = self._websocket_connections[app_name]
-            connection.send_message(websocket_api.result_message(0, message))
-```
+## Best Practices
 
-#### 2.2 Remove Event Bus Usage
-- Remove all `self.hass.bus.async_fire()` calls
-- Remove all `self.hass.bus.async_listen()` calls
-- Replace with WebSocket communication
+### For App Developers
+1. Handle all error codes with appropriate recovery strategies
+2. Respect rate limits and implement backoff
+3. Validate data before sending
+4. Use health checks to monitor connection status
+5. Always send going offline message before disconnecting
+6. Implement exponential backoff for transient errors
 
-### Phase 3: Update Node.js Client
+### For Integration Developers
+1. Use predefined error codes from `SynapseErrorCodes`
+2. Log validation failures with context
+3. Handle unexpected errors gracefully
+4. Monitor connection health and implement recovery
+5. Don't expose sensitive information in error messages
 
-#### 3.1 Basic WebSocket Connection
-```typescript
-// Your Node.js app
-class SynapseWebSocketClient {
-    private connection: WebSocket;
-    private messageId = 0;
+## Performance Considerations
 
-    constructor(host: string, port: number = 8123) {
-        this.connection = new WebSocket(`ws://${host}:${port}/api/websocket`);
-        this.setupEventHandlers();
-    }
+### Connection Management
+- **Connection pooling**: Efficient handling of multiple connections
+- **Timeout optimization**: Appropriate timeout values for different scenarios
+- **Resource cleanup**: Proper cleanup of timers and connections
+- **Memory management**: Efficient tracking of connection state
 
-    private setupEventHandlers() {
-        this.connection.onopen = () => {
-            console.log('Connected to Home Assistant WebSocket API');
-        };
+### Message Processing
+- **Size validation**: Early size validation to prevent processing large messages
+- **Schema validation**: Fast schema validation using voluptuous
+- **Rate limiting**: Efficient rate limit tracking with automatic cleanup
+- **Error handling**: Fast error response without unnecessary processing
 
-        this.connection.onmessage = (event) => {
-            const response = JSON.parse(event.data);
-            this.handleResponse(response);
-        };
+## Migration from Event Bus
 
-        this.connection.onerror = (error) => {
-            console.error('WebSocket error:', error);
-        };
+### Benefits
+1. **Better performance**: Direct WebSocket communication without event bus overhead
+2. **Improved reliability**: Proper error handling and recovery mechanisms
+3. **Enhanced security**: Rate limiting, validation, and connection management
+4. **Standard compliance**: Uses Home Assistant's standard WebSocket API
+5. **Better debugging**: Comprehensive error codes and health monitoring
 
-        this.connection.onclose = () => {
-            console.log('Disconnected from Home Assistant');
-        };
-    }
+### Migration Steps
+1. Update app code to use WebSocket commands
+2. Implement proper error handling for all error codes
+3. Add health monitoring and checks
+4. Test all scenarios including error conditions
+5. Monitor performance improvements
 
-    private handleResponse(response: any) {
-        if (response.type === 'result') {
-            // Handle successful response
-            console.log('Response:', response.result);
-        } else if (response.type === 'error') {
-            // Handle error response
-            console.error('Error:', response.error);
-        }
-    }
+---
 
-    private sendMessage(type: string, data: any): number {
-        const id = ++this.messageId;
-        const message = {
-            id,
-            type,
-            ...data
-        };
-        this.connection.send(JSON.stringify(message));
-        return id;
-    }
-
-    // Public API methods
-    async register(appName: string, uniqueId: string, data: any): Promise<any> {
-        return this.sendMessage('synapse/register', {
-            app_name: appName,
-            unique_id: uniqueId,
-            data
-        });
-    }
-
-    async updateEntity(uniqueId: string, entityData: any): Promise<any> {
-        return this.sendMessage('synapse/update_entity', {
-            unique_id: uniqueId,
-            entity_data: entityData
-        });
-    }
-
-    async sendHeartbeat(appName: string, hash?: string): Promise<any> {
-        return this.sendMessage('synapse/heartbeat', {
-            app_name: appName,
-            hash
-        });
-    }
-
-    async requestDiscovery(): Promise<any> {
-        return this.sendMessage('synapse/discovery', {});
-    }
-}
-```
-
-#### 3.2 Usage Example
-```typescript
-const client = new SynapseWebSocketClient('homeassistant.local');
-
-// Register the app
-await client.register('my_app', 'unique_app_id', {
-    title: 'My App',
-    version: '1.0.0',
-    // ... other app data
-});
-
-// Update an entity
-await client.updateEntity('switch_1', {
-    state: 'on',
-    attributes: { friendly_name: 'My Switch' }
-});
-
-// Send heartbeat
-setInterval(() => {
-    client.sendHeartbeat('my_app', 'current_hash');
-}, 30000);
-```
-
-### Phase 4: Add Authentication
-
-#### 4.1 API Key Authentication
-```python
-# In websocket.py
-@websocket_api.require_admin
-@websocket_api.websocket_command({
-    vol.Required("type"): "synapse/register",
-    vol.Required("app_name"): str,
-    vol.Required("unique_id"): str,
-    vol.Required("api_key"): str,  # Add API key requirement
-    vol.Required("data"): dict,
-})
-@websocket_api.async_response
-async def handle_synapse_register(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
-) -> None:
-    """Handle synapse app registration with API key validation."""
-    try:
-        # Validate API key
-        api_key = msg.get("api_key")
-        if not await validate_api_key(hass, api_key):
-            connection.send_error(msg["id"], "invalid_api_key", "Invalid API key")
-            return
-
-        # Continue with registration
-        connection.send_result(msg["id"], {"success": True, "registered": True})
-    except Exception as e:
-        connection.send_error(msg["id"], "registration_failed", str(e))
-```
-
-#### 4.2 Configuration for API Keys
-```yaml
-# In configuration.yaml
-synapse:
-  api_keys:
-    - name: "My App"
-      key: "your-secret-api-key-here"
-```
-
-## 🧪 Testing
-
-### 4.1 Unit Tests
-```python
-# tests/test_websocket.py
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-
-from homeassistant.components import websocket_api
-from custom_components.synapse.websocket import handle_synapse_register
-
-async def test_websocket_register_success(hass):
-    """Test successful app registration via WebSocket."""
-    connection = MagicMock()
-    connection.send_result = AsyncMock()
-
-    msg = {
-        "id": 1,
-        "type": "synapse/register",
-        "app_name": "test_app",
-        "unique_id": "test_unique_id",
-        "data": {"title": "Test App"}
-    }
-
-    await handle_synapse_register(hass, connection, msg)
-
-    connection.send_result.assert_called_once_with(1, {"success": True, "registered": True})
-```
-
-### 4.2 Integration Tests
-```python
-# tests/test_websocket_integration.py
-async def test_websocket_connection_lifecycle(hass, websocket_client):
-    """Test full WebSocket connection lifecycle."""
-    # Test connection
-    await websocket_client.connect()
-
-    # Test registration
-    response = await websocket_client.send_json({
-        "id": 1,
-        "type": "synapse/register",
-        "app_name": "test_app",
-        "unique_id": "test_unique_id",
-        "data": {"title": "Test App"}
-    })
-
-    assert response["success"] is True
-```
-
-## 📚 Migration Strategy
-
-### Step 1: Implement WebSocket API (Week 1)
-- Create `websocket.py` with command handlers
-- Register WebSocket commands in `__init__.py`
-- Add basic authentication
-
-### Step 2: Update Bridge (Week 2)
-- Modify bridge to use WebSocket instead of event bus
-- Add connection tracking
-- Remove event bus listeners
-
-### Step 3: Update Node.js Client (Week 3)
-- Create new WebSocket client class
-- Update existing apps to use new client
-- Test bidirectional communication
-
-### Step 4: Remove Event Bus (Week 4)
-- Remove all event bus usage
-- Clean up unused code
-- Final testing and validation
-
-## 🎯 Success Criteria
-
-- ✅ WebSocket API handles all current event bus functionality
-- ✅ Bidirectional communication works properly
-- ✅ Authentication is implemented
-- ✅ Error handling is robust
-- ✅ Performance is improved
-- ✅ No event bus usage remains
-
-## 📝 Notes
-
-- This is the most critical change for core acceptance
-- WebSocket API is the standard pattern for external communication
-- Provides better security and performance
-- Enables proper bidirectional communication
-- Follows Home Assistant's established patterns
+**Status**: Implementation Complete with Enhanced Security & Error Handling

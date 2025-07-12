@@ -2,7 +2,7 @@
 
 ## 🎯 Overview
 
-This document details the complete communication workflow between NodeJS Synapse applications and the Home Assistant Synapse extension. The workflow uses WebSocket API for bidirectional communication and implements a hash-based synchronization system.
+This document details the complete communication workflow between NodeJS Synapse applications and the Home Assistant Synapse extension. The workflow uses WebSocket API for bidirectional communication and implements a hash-based synchronization system with comprehensive error handling and security features.
 
 ## 🔄 WebSocket Message ID Handling
 
@@ -229,8 +229,14 @@ sequenceDiagram
     App->>WS: Connect to Home Assistant WebSocket API
     WS->>App: Connection established
 
+    Note over App: Connection timeout timer starts (60s)
     Note over App: App sends "hello world" message
     App->>WS: synapse/register {unique_id, app_metadata}
+
+    Note over WS: Validation Pipeline
+    Note over WS: 1. Rate limiting check
+    Note over WS: 2. Message size validation
+    Note over WS: 3. Schema validation
     WS->>Bridge: Forward registration request
 
     Note over Bridge: Check for existing connections
@@ -244,6 +250,8 @@ sequenceDiagram
             Bridge->>WS: Error: app not registered
             WS->>App: Registration failed
         else App registered
+            Bridge->>Bridge: Reset connection timeout
+            Bridge->>Bridge: Reset reconnection attempts
             Bridge->>Storage: Get last known hash for app
             Storage->>Bridge: Return stored hash
             Bridge->>WS: Registration success + last hash
@@ -451,18 +459,32 @@ sequenceDiagram
     Note over App: Entity state/configuration changes
 
     App->>WS: synapse/update_entity {unique_id, changes}
+
+    Note over WS: Validation Pipeline
+    Note over WS: 1. Rate limiting (300/min)
+    Note over WS: 2. Size validation (10KB)
+    Note over WS: 3. Schema validation
     WS->>Bridge: Forward entity update
+
     Bridge->>Bridge: Validate entity exists
     alt Entity not found
         Bridge->>WS: Error: entity not found
         WS->>App: Update failed
     else Entity found
-        Bridge->>Entities: Apply entity changes
-        Entities->>Bridge: Changes applied
+        Bridge->>Bridge: Field validation
+        Bridge->>Bridge: Domain-specific validation
+        Bridge->>Bridge: Type validation
+        alt Validation failed
+            Bridge->>WS: Error: entity_validation_failed + details
+            WS->>App: Update failed
+        else Validation passed
+            Bridge->>Entities: Apply entity changes
+            Entities->>Bridge: Changes applied
 
-        Note over Bridge: No hash change for patches
-        Bridge->>WS: Entity update success
-        WS->>App: Update acknowledged
+            Note over Bridge: No hash change for patches
+            Bridge->>WS: Entity update success
+            WS->>App: Update acknowledged
+        end
     end
 ```
 
@@ -490,7 +512,43 @@ The following entity updates are supported during runtime (no hash change):
    - Device information updates
    - Device availability status
 
-## 🚨 Error Handling
+## 🚨 Error Handling & Recovery
+
+### Enhanced Error Handling Features
+
+The system now includes comprehensive error handling with the following features:
+
+#### **Connection Timeout Management**
+- **60-second connection timeout** for initial registration
+- **Automatic cleanup** of stale connections
+- **Connection health tracking** with uptime monitoring
+
+#### **Automatic Reconnection**
+- **Exponential backoff** reconnection strategy
+- **Maximum 10 reconnection attempts** before giving up
+- **Connection failure detection** and recovery mechanisms
+
+#### **Rate Limiting**
+- **Per-command rate limiting** to prevent abuse
+- **Configurable limits** per command type
+- **Automatic cleanup** of old rate limit tracking
+
+#### **Message Validation**
+- **Size limits** to prevent DoS attacks
+- **Format validation** with detailed error messages
+- **JSON serialization validation**
+
+#### **Enhanced Entity Validation**
+- **Domain-specific state validation**
+- **Field type and length validation**
+- **Attribute validation** with JSON serialization checks
+- **Comprehensive error messages** with validation details
+
+#### **Health Monitoring**
+- **New `synapse/get_health` WebSocket command**
+- **Connection uptime tracking**
+- **Reconnection attempt monitoring**
+- **Detailed health reporting**
 
 ### Connection Errors
 
@@ -525,6 +583,41 @@ flowchart TD
     I --> J[Retry Configuration]
     H --> C
 ```
+
+### Error Recovery Strategies
+
+| Error Code | Recovery Strategy | Retry Logic |
+|------------|-------------------|-------------|
+| `bridge_not_found` | Wait and retry | Exponential backoff (2s, 4s, 8s...) |
+| `rate_limit_exceeded` | Wait and retry | Exponential backoff (1s, 2s, 4s...) |
+| `message_too_large` | Reduce message size | Immediate retry with smaller message |
+| `entity_validation_failed` | Fix validation errors | Immediate retry after fixing errors |
+| `not_registered` | Configure app | No retry - configuration error |
+| `connection_timeout` | Reconnect | Exponential backoff |
+| `reconnection_failed` | Manual intervention | No automatic retry |
+
+### Security & Rate Limiting
+
+#### **Rate Limiting Configuration**
+- **Registration**: 10 requests per minute
+- **Heartbeat**: 120 requests per minute (2 per second)
+- **Entity Updates**: 300 requests per minute (5 per second)
+- **Configuration Updates**: 5 requests per minute
+- **Going Offline**: 10 requests per minute
+- **Health Check**: 120 requests per minute
+
+#### **Message Size Limits**
+- **Registration**: 50KB
+- **Entity Updates**: 10KB
+- **Configuration Updates**: 1MB
+- **Heartbeat**: 1KB
+- **Health Check**: 1KB
+
+#### **Connection Timeout Settings**
+- **Connection Timeout**: 60 seconds for initial registration
+- **Heartbeat Timeout**: 30 seconds for heartbeat monitoring
+- **Reconnect Delay**: 5 seconds base delay
+- **Max Reconnect Attempts**: 10 attempts
 
 ## 🔧 Future Enhancements
 
@@ -583,17 +676,18 @@ sequenceDiagram
 
 ### WebSocket Commands
 
-| Command | Direction | Purpose | Payload |
-|---------|-----------|---------|---------|
-| `synapse/register` | App → HA | Initial registration | App metadata |
-| `synapse/heartbeat` | App → HA | Health check | Current hash |
-| `synapse/update_entity` | App → HA | Entity updates | Entity changes |
-| `synapse/update_configuration` | App → HA | Full config sync | Complete config |
-| `synapse/request_configuration` | HA → App | Request config | None |
-| `synapse/going_offline` | App → HA | Graceful shutdown | Unique ID |
-| `synapse/register_service` | App → HA | Service registration | Service schema |
-| `synapse/service_call` | HA → App | Service invocation | Service data |
-| `synapse/service_response` | App → HA | Service response | Service result |
+| Command | Direction | Purpose | Payload | Rate Limit |
+|---------|-----------|---------|---------|------------|
+| `synapse/register` | App → HA | Initial registration | App metadata | 10/min |
+| `synapse/heartbeat` | App → HA | Health check | Current hash | 120/min |
+| `synapse/update_entity` | App → HA | Entity updates | Entity changes | 300/min |
+| `synapse/update_configuration` | App → HA | Full config sync | Complete config | 5/min |
+| `synapse/request_configuration` | HA → App | Request config | None | N/A |
+| `synapse/going_offline` | App → HA | Graceful shutdown | Unique ID | 10/min |
+| `synapse/get_health` | App → HA | Health check | Optional unique_id | 120/min |
+| `synapse/register_service` | App → HA | Service registration | Service schema | 5/min |
+| `synapse/service_call` | HA → App | Service invocation | Service data | N/A |
+| `synapse/service_response` | App → HA | Service response | Service result | 300/min |
 
 ### Hash Generation
 
@@ -615,6 +709,8 @@ function generateHash(config: AppConfiguration): string {
 - **Priority System**: Future enhancement for dev/prod workflows
 - **Graceful Disconnect**: Clean up resources when apps disconnect
 - **Reconnection**: Apps can reconnect and resume operation
+- **Connection Timeouts**: Automatic cleanup of stale connections
+- **Health Monitoring**: Real-time connection health tracking
 
 ### Error Recovery
 
@@ -622,6 +718,8 @@ function generateHash(config: AppConfiguration): string {
 - **Hash Drift**: Request full configuration resync
 - **Invalid Data**: Log errors and continue operation
 - **Service Failures**: Retry with appropriate error handling
+- **Rate Limiting**: Respect limits and implement backoff
+- **Validation Errors**: Detailed error messages for debugging
 
 ## 🎯 Success Criteria
 
@@ -630,18 +728,24 @@ function generateHash(config: AppConfiguration): string {
 - ✅ Duplicate unique_id connections are rejected
 - ✅ Unregistered apps are rejected
 - ✅ Hash synchronization works correctly
+- ✅ Connection timeouts are handled properly
+- ✅ Rate limiting prevents abuse
 
 ### Runtime Operation
 - ✅ Heartbeats maintain connection health
 - ✅ Hash drift detection triggers resync
 - ✅ Entity updates are applied correctly
 - ✅ No hash changes for runtime patches
+- ✅ Health monitoring provides detailed status
+- ✅ Automatic reconnection works reliably
 
 ### Error Handling
 - ✅ Connection failures are handled gracefully
 - ✅ Invalid data doesn't crash the system
 - ✅ Recovery mechanisms work correctly
 - ✅ Comprehensive error logging
+- ✅ Rate limiting prevents abuse
+- ✅ Message validation catches errors early
 
 ### Future Enhancements
 - ✅ Multiple connection support (planned)
@@ -652,5 +756,5 @@ function generateHash(config: AppConfiguration): string {
 ---
 
 **Last Updated**: [Current Date]
-**Status**: Documentation Complete
+**Status**: Documentation Complete with Enhanced Error Handling
 **Next Review**: After WebSocket Implementation

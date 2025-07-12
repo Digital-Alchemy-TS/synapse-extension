@@ -5,6 +5,12 @@ QUERY_TIMEOUT=0.1
 RETRIES=3
 RETRY_DELAY=5
 
+# Connection timeout settings
+CONNECTION_TIMEOUT = 60  # seconds - timeout for initial connection
+HEARTBEAT_TIMEOUT = 30   # seconds - timeout for heartbeat (same as APP_OFFLINE_DELAY)
+RECONNECT_DELAY = 5      # seconds - base delay for reconnection attempts
+MAX_RECONNECT_ATTEMPTS = 10  # maximum number of reconnection attempts
+
 # WebSocket Error Codes
 class SynapseErrorCodes:
     """Error codes for Synapse WebSocket communication."""
@@ -30,6 +36,20 @@ class SynapseErrorCodes:
     INTERNAL_ERROR = "internal_error"
     TIMEOUT_ERROR = "timeout_error"
     CONNECTION_ERROR = "connection_error"
+
+    # Connection management errors
+    CONNECTION_TIMEOUT = "connection_timeout"
+    RECONNECTION_FAILED = "reconnection_failed"
+    CONNECTION_LOST = "connection_lost"
+    INVALID_MESSAGE_FORMAT = "invalid_message_format"
+    MESSAGE_TOO_LARGE = "message_too_large"
+    RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
+
+    # Configuration errors
+    CONFIGURATION_INVALID = "configuration_invalid"
+    CONFIGURATION_TOO_LARGE = "configuration_too_large"
+    ENTITY_VALIDATION_FAILED = "entity_validation_failed"
+    DEVICE_VALIDATION_FAILED = "device_validation_failed"
 
 class SynapseMetadata:
     """Entity device information for device registry."""
