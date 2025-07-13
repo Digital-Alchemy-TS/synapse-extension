@@ -361,7 +361,8 @@ export function DomainGeneratorService({
           // * replace all locals
           if (property === "locals") {
             logger.trace({ newValue }, "replace locals");
-            return locals.replace(newValue);
+            locals.replace(newValue);
+            return false;
           }
           // * manage entity config properties
           if (storage.isStored(property)) {
@@ -388,7 +389,7 @@ export function DomainGeneratorService({
               return false;
             }
             logger.trace({ property }, "updating storage");
-            storage.set(property, newValue);
+            void storage.set(property, newValue);
             return true;
           }
           // * nothing else is settable right now

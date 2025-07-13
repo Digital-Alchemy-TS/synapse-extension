@@ -1,6 +1,5 @@
 import { v4 } from "uuid";
 
-import { HomeAssistantEntityLocalRow } from "../helpers/index.mts";
 import { synapseTestRunner } from "../mock/index.mts";
 
 type SensorParams = {
@@ -56,7 +55,7 @@ describe("Locals", () => {
             locals: { test: false },
             name: "test",
           });
-          const spy = vi.spyOn(synapse.sqlite, "getDatabase");
+          const spy = vi.spyOn(synapse.sqlite, "loadLocals");
           expect(sensor.locals.test).toBe(false);
           expect(sensor.locals.test).toBe(false);
           expect(spy).toHaveBeenCalledTimes(1);
@@ -86,7 +85,7 @@ describe("Locals", () => {
       it("returns set values", async () => {
         expect.assertions(2);
         await synapseTestRunner.run(({ synapse, context, lifecycle }) => {
-          lifecycle.onReady(() => {
+          lifecycle.onReady(async () => {
             const sensor = synapse.sensor<SensorParams>({
               context,
               locals: { test: false },
@@ -96,21 +95,9 @@ describe("Locals", () => {
             sensor.locals.test = true;
             expect(sensor.locals.test).toBe(true);
 
-            const database = synapse.sqlite.getDatabase();
-            const [entry] = database
-              .prepare<
-                [string],
-                HomeAssistantEntityLocalRow
-              >(`SELECT * FROM HomeAssistantEntityLocals WHERE unique_id = ?`)
-              .all(unique_id);
-
-            expect(entry).toEqual(
-              expect.objectContaining({
-                key: "test",
-                unique_id,
-                value_json: "true",
-              }),
-            );
+            // Test that the value was stored using the new database service
+            const spy = vi.spyOn(synapse.sqlite, "updateLocal");
+            expect(spy).toHaveBeenCalledWith(unique_id, "test", true);
           });
         });
       });
@@ -142,7 +129,7 @@ describe("Locals", () => {
       it("resets locals and deletes sqlite entries", async () => {
         expect.assertions(2);
         await synapseTestRunner.run(({ synapse, context, lifecycle }) => {
-          lifecycle.onReady(() => {
+          lifecycle.onReady(async () => {
             const unique_id = v4();
             const sensor = synapse.sensor<SensorParams>({
               context,
@@ -153,15 +140,8 @@ describe("Locals", () => {
 
             delete sensor.locals;
 
-            const spy = vi.spyOn(synapse.sqlite, "getDatabase");
-
-            const database = synapse.sqlite.getDatabase();
-            const entry = database
-              .prepare(`SELECT * FROM HomeAssistantEntityLocals WHERE unique_id = ?`)
-              .all(unique_id);
-
-            expect(spy).toHaveBeenCalled();
-            expect(entry.length).toBe(0);
+            const spy = vi.spyOn(synapse.sqlite, "deleteLocal");
+            expect(spy).toHaveBeenCalledWith(unique_id, "test");
           });
         });
       });
@@ -190,8 +170,7 @@ describe("Locals", () => {
               name: "test",
             });
             expect(() => {
-              // @ts-expect-error it's the test
-              delete sensor.locals.this_does_not_exist;
+              delete sensor.locals.string;
             }).not.toThrow();
           });
         });

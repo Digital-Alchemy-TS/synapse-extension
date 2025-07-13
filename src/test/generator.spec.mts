@@ -1,4 +1,5 @@
-import { ANY_ENTITY } from "@digital-alchemy/hass";
+import { ByIdProxy, HassEntityContext } from "@digital-alchemy/hass";
+import { EventEmitter } from "events";
 import { v4 } from "uuid";
 
 import { synapseTestRunner } from "../mock/index.mts";
@@ -80,18 +81,25 @@ describe("Generator", () => {
           vi.spyOn(console, "trace").mockImplementationOnce(() => undefined);
           await synapseTestRunner.run(({ synapse, context, hass }) => {
             const sensor = synapse.sensor({ context, name: "test", unique_id });
-            const mockId = "new-id" as unknown as ANY_ENTITY;
-            const mockRef = { entity_id: mockId };
+            const mockId = "sensor.magic";
+            const mockRef = {
+              attributes: {},
+              context: {} as HassEntityContext,
+              entity_id: mockId,
+              last_changed: new Date(),
+              last_reported: new Date(),
+              last_updated: new Date(),
+              state: "on",
+            };
 
-            // @ts-expect-error wip test
-            vi.spyOn(hass.idBy, "unique_id").mockReturnValueOnce(mockId);
-            // @ts-expect-error wip test
-            vi.spyOn(hass.refBy, "id").mockReturnValueOnce(mockRef);
+            vi.spyOn(hass.idBy, "unique_id").mockReturnValueOnce("sensor.magic");
+            vi.spyOn(hass.refBy, "id").mockReturnValueOnce(
+              mockRef as unknown as ByIdProxy<"sensor.magic">,
+            );
 
             const result = sensor.getEntity();
             expect(hass.idBy.unique_id).toHaveBeenCalledWith(unique_id);
-            expect(result).toBe(mockRef); // Should return the newly created reference
-            // expect(entityRefs.get(mockId)).toBe(mockRef); // Ensure it’s stored in entityRefs
+            expect(result).toBe(mockRef);
           });
         });
 
@@ -135,10 +143,10 @@ describe("Generator", () => {
           await synapseTestRunner.run(({ synapse, context, event }) => {
             const sensor = synapse.sensor({ context, name: "test", unique_id });
             let removable: unknown;
-            const spy = vi
-              .spyOn(event, "on")
-              // @ts-expect-error shut up
-              .mockImplementation((_, callback) => (removable = callback));
+            const spy = vi.spyOn(event, "on").mockImplementation((_, callback) => {
+              removable = callback;
+              return {} as EventEmitter;
+            });
             const { remove } = sensor.onUpdate(() => {});
             remove();
             expect(spy).toHaveBeenCalledWith(unique_id, removable);

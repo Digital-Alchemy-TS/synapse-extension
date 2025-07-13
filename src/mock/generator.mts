@@ -32,11 +32,6 @@ export function EntityGenerator({ scheduler, synapse, context, logger }: TServic
       suggested_object_id: "magic_the_sensor",
       unit_of_measurement: "ft/s",
     });
-
-    sensor.onUpdate(() => {
-      // sensor.u
-    });
-
     const binary_sensor = synapse.binary_sensor({
       context,
       device_class: "window",
@@ -46,8 +41,8 @@ export function EntityGenerator({ scheduler, synapse, context, logger }: TServic
     // binary_sensor.is_on
     scheduler.setInterval(() => {
       const number = Math.floor(Math.random() * SECOND);
-      sensor.storage.set("state", number);
-      binary_sensor.storage.set("is_on", !binary_sensor.storage.get("is_on"));
+      sensor.state = number;
+      binary_sensor.is_on = !binary_sensor.is_on;
     }, SECOND);
     const button = synapse.button({
       context,
@@ -72,7 +67,6 @@ export function EntityGenerator({ scheduler, synapse, context, logger }: TServic
     scene.onActivate(() => {
       logger.info("scene activated callback");
     });
-    // const entity = hass.entity.byId("binary_sensor.hass_e2e_online");
     synapse.switch({
       context,
       icon: {
@@ -89,16 +83,7 @@ export function EntityGenerator({ scheduler, synapse, context, logger }: TServic
       },
       name: "Example switch",
     });
-    // const acp = synapse.alarm_control_panel({
-    // arm_night({ code }) {
-    // logger.info({ code }, `arm_night called with code via static attachment`);
-    // },
-    // context,
-    // name: "Example alarm panel",
-    // });
-    // acp.onArmNight(({ code }) =>
-    // logger.info({ code }, `arm_night called with code via dynamic attachment`),
-    // );
+
     synapse.lock({
       context,
       is_locked: false,

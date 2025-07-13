@@ -46,18 +46,11 @@ export type TodoEvents = {
   create_todo_item: { item: TodoItem };
   delete_todo_item: { item: TodoItem };
   move_todo_item: { item: TodoItem };
-  update_todo_item: { item: TodoItem };
 };
 
 export function VirtualTodoList({ context, synapse }: TServiceParams) {
   const generate = synapse.generator.create<TodoConfiguration<object>, TodoEvents>({
-    bus_events: [
-      //
-      "create_todo_item",
-      "delete_todo_item",
-      "move_todo_item",
-      "update_todo_item",
-    ],
+    bus_events: ["create_todo_item", "delete_todo_item", "move_todo_item"],
     context,
     // @ts-expect-error its fine
     domain: "todo_list",

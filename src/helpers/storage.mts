@@ -8,7 +8,7 @@ export type TSynapseEntityStorage<CONFIGURATION extends object = object> = {
   unique_id: TSynapseId;
   keys: () => string[];
   purge: () => void;
-  set: <KEY extends keyof CONFIGURATION>(key: KEY, value: CONFIGURATION[KEY]) => void;
+  set: <KEY extends keyof CONFIGURATION>(key: KEY, value: CONFIGURATION[KEY]) => Promise<void>;
   get: <KEY extends keyof CONFIGURATION>(key: KEY) => CONFIGURATION[KEY];
   isStored(key: string): key is Extract<keyof CONFIGURATION, string>;
   export: () => CONFIGURATION;

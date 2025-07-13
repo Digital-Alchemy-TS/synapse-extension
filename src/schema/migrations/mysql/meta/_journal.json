@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1752420192249,
+      "tag": "0000_misty_hellfire_club",
+      "breakpoints": true
+    }
+  ]
+}

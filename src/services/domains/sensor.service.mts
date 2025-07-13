@@ -198,8 +198,15 @@ export function VirtualSensor({
         }
       }
     }
-    // @ts-expect-error it's fine
-    const out = generate.addEntity<PARAMS["attributes"], PARAMS["locals"], DATA>(options);
+    const out = generate.addEntity<PARAMS["attributes"], PARAMS["locals"], DATA>(
+      options as unknown as AddEntityOptions<
+        Generic,
+        SensorEvents,
+        PARAMS["attributes"],
+        PARAMS["locals"],
+        DATA
+      >,
+    );
 
     type SynapseSensor = Omit<typeof out, "state"> & { state: PARAMS["state"] };
 

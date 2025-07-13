@@ -42,20 +42,13 @@ export function StorageService({
   const registry = new Map<TSynapseId, TSynapseEntityStorage>();
   const domain_lookup = new Map<string, TRawDomains>();
 
-  const resync = async () => {
+  hass.events.onEntityRegistryUpdate(async () => {
     await debounce("synapse_storage", RESYNC_DELAY);
-    if (!hass.entity.registry.current) {
-      logger.debug("retrying resync, registry not available yet");
-      setImmediate(resync);
-      return;
-    }
     logger.info("entity storage resync");
-    registry.forEach((_, unique_id) => {
-      synapse.sqlite.update(unique_id, registry.get(unique_id).export());
-    });
-  };
-
-  hass.events.onEntityRegistryUpdate(resync);
+    for (const [unique_id] of registry) {
+      await synapse.sqlite.update(unique_id, registry.get(unique_id).export());
+    }
+  });
 
   /**
    * Convert the registry into the expected data format for sending to Home Assistant
@@ -125,7 +118,7 @@ export function StorageService({
       /**
        * update handler
        */
-      function updateSettableConfig() {
+      async function updateSettableConfig() {
         const current_value = storage.get(key);
         const known = synapse.generator.knownEntities.get(unique_id);
         // console.log({ known });
@@ -138,7 +131,7 @@ export function StorageService({
           { key, name: updateSettableConfig, unique_id: entity.unique_id },
           `setting new value`,
         );
-        storage.set(key, new_value);
+        await storage.set(key, new_value);
       }
 
       // Check periodically to ensure accuracy with time based things
@@ -175,12 +168,13 @@ export function StorageService({
         ) as ValueData;
       },
       get: key => CURRENT_VALUE[key],
-      isStored: key => isCommonConfigKey(key) || load_config_keys.includes(key),
+      isStored: (key: string): key is Extract<keyof CONFIGURATION, string> =>
+        isCommonConfigKey(key) || load_config_keys.includes(key),
       keys: () => load,
       purge() {
         logger.warn("you should report this... I think");
       },
-      set: (key: Extract<keyof CONFIGURATION, string>, value) => {
+      set: async (key: Extract<keyof CONFIGURATION, string>, value) => {
         const unique_id = entity.unique_id as TSynapseId;
         if (NO_LIVE_UPDATE.has(key)) {
           throw new InternalError(context, "NO_LIVE_UPDATE", `${key} cannot be updated at runtime`);
@@ -188,7 +182,7 @@ export function StorageService({
         CURRENT_VALUE[key] = value;
         if (initialized) {
           logger.trace({ key, unique_id }, "update locals");
-          synapse.sqlite.update(unique_id, registry.get(unique_id).export());
+          await synapse.sqlite.update(unique_id, registry.get(unique_id).export());
           if (hass.socket.connectionState === "connected") {
             setImmediate(async () => await synapse.socket.send(unique_id, CURRENT_VALUE));
           }
@@ -199,16 +193,16 @@ export function StorageService({
     registry.set(entity.unique_id as TSynapseId, storage as unknown as TSynapseEntityStorage);
 
     // * value loading
-    lifecycle.onReady(function onReady() {
+    lifecycle.onReady(async function onReady() {
       // - identify id
       const unique_id = entity.unique_id as TSynapseId;
 
       // - ??
-      const data = synapse.sqlite.load(unique_id, CURRENT_VALUE);
+      const data = await synapse.sqlite.load(unique_id, CURRENT_VALUE);
       if (is.empty(data?.state_json)) {
         initialized = true;
         logger.debug({ unique_id }, "initial create entity row");
-        synapse.sqlite.update(unique_id, registry.get(unique_id).export());
+        await synapse.sqlite.update(unique_id, registry.get(unique_id).export());
         return;
       }
 

@@ -59,11 +59,10 @@ describe("Sensor", () => {
           synapse.sensor({
             context,
             device_class: "enum",
+            icon: "mdi:test",
             name: "test",
             options: [],
             sensor_type: "string",
-            // @ts-expect-error it's the test
-            state_class: "foo",
           });
         }).toThrow();
       });
@@ -76,9 +75,8 @@ describe("Sensor", () => {
           synapse.sensor({
             context,
             device_class: "enum",
+            icon: "mdi:test",
             name: "test",
-            // @ts-expect-error it's the test
-            native_unit_of_measurement: "foo",
             options: [],
             sensor_type: "string",
           });

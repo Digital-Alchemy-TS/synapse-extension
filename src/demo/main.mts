@@ -8,7 +8,7 @@ import utc from "dayjs/plugin/utc";
 import weekOfYear from "dayjs/plugin/weekOfYear";
 
 import { LIB_SYNAPSE } from "../synapse.module.mts";
-import { EntityGenerator } from "./generator.mts";
+import { DemoEntityGenerator } from "./generator.mts";
 
 dayjs.extend(weekOfYear);
 dayjs.extend(advancedFormat);
@@ -16,29 +16,32 @@ dayjs.extend(isBetween);
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-export const ENTITY_GENERATOR = CreateApplication({
+export const DEMO_APP = CreateApplication({
   libraries: [LIB_HASS, LIB_SYNAPSE],
-  name: "entity_generator",
+  name: "synapse_demo",
   services: {
-    generator: EntityGenerator,
+    generator: DemoEntityGenerator,
   },
 });
 
 declare module "@digital-alchemy/core" {
   export interface LoadedModules {
-    entity_generator: typeof ENTITY_GENERATOR;
+    synapse_demo: typeof DEMO_APP;
   }
 }
 
-await ENTITY_GENERATOR.bootstrap({
+await DEMO_APP.bootstrap({
   configuration: {
     boilerplate: { LOG_LEVEL: "debug" },
     synapse: {
       METADATA: {
-        hw_version: "0.0.1",
-        suggested_area: "Living Room",
+        hw_version: "1.0.0",
+        manufacturer: "Digital Alchemy",
+        model: "Synapse Demo Device",
+        suggested_area: "Demo Room",
       },
-      METADATA_TITLE: "Synapse Mocks",
+      METADATA_TITLE: "Synapse Demo Integration",
+      METADATA_UNIQUE_ID: "synapse-demo-integration",
     },
   },
 });
