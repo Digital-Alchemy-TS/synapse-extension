@@ -17,11 +17,51 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Setup the router platform."""
+    """Setup the sensor platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities: List[SynapseSensorDefinition] = bridge.app_data.get("sensor", [])
-    if entities is not None:
-      async_add_entities(SynapseSensor(hass, bridge, entity) for entity in entities)
+
+    # Use dynamic configuration if available, otherwise fall back to static config
+    entities: List[SynapseSensorDefinition] = []
+    if bridge._current_configuration and "sensor" in bridge._current_configuration:
+        entities = bridge._current_configuration.get("sensor", [])
+        bridge.logger.info(f"Sensor platform setup: Using dynamic configuration with {len(entities)} entities")
+    else:
+        entities = bridge.app_data.get("sensor", [])
+        bridge.logger.info(f"Sensor platform setup: Using static configuration with {len(entities)} entities")
+
+    if entities:
+        bridge.logger.info(f"Adding {len(entities)} sensor entities: {[e.get('name') for e in entities]}")
+        async_add_entities(SynapseSensor(hass, bridge, entity) for entity in entities)
+    else:
+        bridge.logger.info("No sensor entities to add")
+
+    # Listen for registration events to add new entities dynamically
+    async def handle_registration(event):
+        """Handle registration events to add new sensor entities."""
+        bridge.logger.info(f"Sensor platform received registration event: {event.data}")
+        bridge.logger.info(f"Event unique_id: {event.data.get('unique_id')}, bridge.metadata_unique_id: {bridge.metadata_unique_id}")
+
+        if event.data.get("unique_id") == bridge.metadata_unique_id:
+            bridge.logger.info("Registration event received, checking for new sensor entities")
+
+            # Check if there are new sensor entities in the dynamic configuration
+            if bridge._current_configuration and "sensor" in bridge._current_configuration:
+                new_entities = bridge._current_configuration.get("sensor", [])
+                if new_entities:
+                    bridge.logger.info(f"Adding {len(new_entities)} new sensor entities: {[e.get('name') for e in new_entities]}")
+                    async_add_entities(SynapseSensor(hass, bridge, entity) for entity in new_entities)
+                else:
+                    bridge.logger.debug("No new sensor entities found in registration")
+            else:
+                bridge.logger.debug("No dynamic configuration found for sensor entities")
+        else:
+            bridge.logger.debug(f"Registration event not for this bridge: {event.data.get('unique_id')} != {bridge.metadata_unique_id}")
+
+    # Register the event listener
+    bridge.logger.info(f"Registering sensor platform event listener for: {bridge.event_name('register')}")
+    bridge.logger.info(f"Bridge metadata_unique_id: {bridge.metadata_unique_id}")
+    hass.bus.async_listen(bridge.event_name("register"), handle_registration)
+    bridge.logger.info("Sensor platform event listener registered successfully")
 
 class SynapseSensor(SynapseBaseEntity, SensorEntity):
     def __init__(

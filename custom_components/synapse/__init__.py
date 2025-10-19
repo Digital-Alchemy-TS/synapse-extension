@@ -43,6 +43,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Set up Synapse app from a config entry."""
+    logger.warning("async_setup_entry")
     domain_data: Dict[str, SynapseBridge] = hass.data.setdefault(DOMAIN, {})
     bridge: SynapseBridge | None = None
 
@@ -65,10 +66,12 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
 
 async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    bridge: SynapseBridge = hass.data.setdefault(DOMAIN, {})[config_entry.entry_id]
-    await bridge.async_cleanup()
-    unload_ok = await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN].pop(config_entry.entry_id)
+    logger.warning("async_unload_entry")
+    # bridge: SynapseBridge = hass.data.setdefault(DOMAIN, {})[config_entry.entry_id]
+    # await bridge.async_cleanup()
+    # unload_ok = await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
+    # if unload_ok:
+    #     hass.data[DOMAIN].pop(config_entry.entry_id)
 
-    return unload_ok
+    # return unload_ok
+    return True

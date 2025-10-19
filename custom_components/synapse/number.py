@@ -17,11 +17,51 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Setup the router platform."""
+    """Setup the number platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities: List[SynapseNumberDefinition] = bridge.app_data.get("number", [])
-    if entities is not None:
-      async_add_entities(SynapseNumber(hass, bridge, entity) for entity in entities)
+
+    # Use dynamic configuration if available, otherwise fall back to static config
+    entities: List[SynapseNumberDefinition] = []
+    if bridge._current_configuration and "number" in bridge._current_configuration:
+        entities = bridge._current_configuration.get("number", [])
+        bridge.logger.info(f"Number platform setup: Using dynamic configuration with {len(entities)} entities")
+    else:
+        entities = bridge.app_data.get("number", [])
+        bridge.logger.info(f"Number platform setup: Using static configuration with {len(entities)} entities")
+
+    if entities:
+        bridge.logger.info(f"Adding {len(entities)} number entities: {[e.get('name') for e in entities]}")
+        async_add_entities(SynapseNumber(hass, bridge, entity) for entity in entities)
+    else:
+        bridge.logger.info("No number entities to add")
+
+    # Listen for registration events to add new entities dynamically
+    async def handle_registration(event):
+        """Handle registration events to add new number entities."""
+        bridge.logger.info(f"Number platform received registration event: {event.data}")
+        bridge.logger.info(f"Event unique_id: {event.data.get('unique_id')}, bridge.metadata_unique_id: {bridge.metadata_unique_id}")
+
+        if event.data.get("unique_id") == bridge.metadata_unique_id:
+            bridge.logger.info("Registration event received, checking for new number entities")
+
+            # Check if there are new number entities in the dynamic configuration
+            if bridge._current_configuration and "number" in bridge._current_configuration:
+                new_entities = bridge._current_configuration.get("number", [])
+                if new_entities:
+                    bridge.logger.info(f"Adding {len(new_entities)} new number entities: {[e.get('name') for e in new_entities]}")
+                    async_add_entities(SynapseNumber(hass, bridge, entity) for entity in new_entities)
+                else:
+                    bridge.logger.debug("No new number entities found in registration")
+            else:
+                bridge.logger.debug("No dynamic configuration found for number entities")
+        else:
+            bridge.logger.debug(f"Registration event not for this bridge: {event.data.get('unique_id')} != {bridge.metadata_unique_id}")
+
+    # Register the event listener
+    bridge.logger.info(f"Registering number platform event listener for: {bridge.event_name('register')}")
+    bridge.logger.info(f"Bridge metadata_unique_id: {bridge.metadata_unique_id}")
+    hass.bus.async_listen(bridge.event_name("register"), handle_registration)
+    bridge.logger.info("Number platform event listener registered successfully")
 
 class SynapseNumber(SynapseBaseEntity, NumberEntity):
     def __init__(
@@ -64,7 +104,7 @@ class SynapseNumber(SynapseBaseEntity, NumberEntity):
     @callback
     async def async_set_native_value(self, value: float, **kwargs: Any) -> None:
         """Proxy the request to set the value."""
-        self.hass.bus.async_fire(
-            self.bridge.event_name("set_value"),
+        await self.bridge.emit_event(
+            "set_value",
             {"unique_id": self.entity.get("unique_id"), "value": value, **kwargs},
         )

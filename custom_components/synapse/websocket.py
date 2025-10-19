@@ -26,61 +26,6 @@ logger: logging.Logger = logging.getLogger(__name__)
 # Rate limiting tracking
 _rate_limit_tracking: Dict[str, Dict[str, Any]] = {}
 
-# WebSocket command schemas
-REGISTER_SCHEMA = vol.Schema({
-    vol.Required("type"): "synapse/register",
-    vol.Required("unique_id"): vol.Length(min=1, max=255),  # Add length validation
-    vol.Required("app_metadata"): vol.Schema({
-        vol.Required("app"): vol.Length(min=1, max=100),
-        vol.Required("title"): vol.Length(min=1, max=200),
-        vol.Required("hash"): vol.Length(min=1, max=64),  # SHA-256 hash length
-        vol.Required("device"): dict,
-        vol.Required("secondary_devices"): list,
-        vol.Required("hostname"): vol.Length(min=1, max=255),
-        vol.Required("username"): vol.Length(min=1, max=100),
-        # Additional fields from storage dump
-        vol.Optional("sensor"): list,
-        vol.Optional("switch"): list,
-        vol.Optional("binary_sensor"): list,
-        vol.Optional("button"): list,
-        vol.Optional("climate"): list,
-        vol.Optional("lock"): list,
-        vol.Optional("number"): list,
-        vol.Optional("select"): list,
-        vol.Optional("text"): list,
-        vol.Optional("date"): list,
-        vol.Optional("time"): list,
-        vol.Optional("datetime"): list,
-        vol.Optional("scene"): list,
-    }),
-})
-
-HEARTBEAT_SCHEMA = vol.Schema({
-    vol.Required("type"): "synapse/heartbeat",
-    vol.Required("hash"): vol.Length(min=1, max=64),
-})
-
-UPDATE_ENTITY_SCHEMA = vol.Schema({
-    vol.Required("type"): "synapse/update_entity",
-    vol.Required("unique_id"): vol.Length(min=1, max=255),
-    vol.Required("changes"): vol.Length(max=10000),  # Limit changes size
-})
-
-UPDATE_CONFIGURATION_SCHEMA = vol.Schema({
-    vol.Required("type"): "synapse/update_configuration",
-    vol.Required("configuration"): vol.Length(max=1000000),  # 1MB limit for config
-})
-
-GOING_OFFLINE_SCHEMA = vol.Schema({
-    vol.Required("type"): "synapse/going_offline",
-    vol.Required("unique_id"): vol.Length(min=1, max=255),
-})
-
-GET_HEALTH_SCHEMA = vol.Schema({
-    vol.Required("type"): "synapse/get_health",
-    vol.Optional("unique_id"): vol.Length(min=1, max=255),  # Optional - if not provided, return all connections
-})
-
 def _check_rate_limit(connection_id: str, command_type: str, max_per_minute: int = 60) -> bool:
     """
     Check if a connection is rate limited for a specific command type.
@@ -154,16 +99,50 @@ def get_bridge_for_connection(hass: HomeAssistant, connection: Any):
     """Get bridge instance and unique_id for a WebSocket connection."""
     domain_data = hass.data.get(DOMAIN, {})
 
+    connection_id = id(connection)
+    logger.debug(f"Looking for connection with id: {connection_id}")
+
     # Search through all bridges to find one with this connection
-    for bridge in domain_data.values():
+    for unique_id, bridge in domain_data.items():
         if hasattr(bridge, '_websocket_connections'):
+            logger.debug(f"Bridge {unique_id} has connections: {list(bridge._websocket_connections.keys())}")
             for uid, conn in bridge._websocket_connections.items():
-                if conn == connection:
+                stored_conn_id = id(conn)
+                logger.debug(f"  Checking stored connection {uid}: {stored_conn_id} vs {connection_id}")
+                if conn == connection or stored_conn_id == connection_id:
+                    logger.debug(f"  Found match!")
                     return bridge, uid
 
+    logger.warning(f"No bridge found for connection {connection_id}")
     return None, None
 
-@websocket_api.websocket_command(REGISTER_SCHEMA)
+@websocket_api.websocket_command({
+    vol.Required("type"): "synapse/register",
+    vol.Required("unique_id"): vol.Length(min=1, max=255),
+    vol.Required("app_metadata"): vol.Schema({
+        vol.Required("app"): vol.Length(min=1, max=100),
+        vol.Required("title"): vol.Length(min=1, max=200),
+        vol.Required("hash"): vol.Length(min=1, max=64),
+        vol.Required("device"): dict,
+        vol.Required("secondary_devices"): list,
+        vol.Required("hostname"): vol.Length(min=1, max=255),
+        vol.Required("username"): vol.Length(min=1, max=100),
+        vol.Optional("cleanup"): vol.In(["delete", "abandon"]),
+        vol.Optional("sensor"): list,
+        vol.Optional("switch"): list,
+        vol.Optional("binary_sensor"): list,
+        vol.Optional("button"): list,
+        vol.Optional("climate"): list,
+        vol.Optional("lock"): list,
+        vol.Optional("number"): list,
+        vol.Optional("select"): list,
+        vol.Optional("text"): list,
+        vol.Optional("date"): list,
+        vol.Optional("time"): list,
+        vol.Optional("datetime"): list,
+        vol.Optional("scene"): list,
+    }),
+})
 @websocket_api.async_response
 async def handle_synapse_register(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
@@ -175,6 +154,9 @@ async def handle_synapse_register(
 
         # Check rate limiting
         connection_id = str(id(connection))
+        logger.debug("incoming register")
+        logger.debug(connection_id)
+        logger.debug(msg)
         if _check_rate_limit(connection_id, "register", max_per_minute=10):
             connection.send_error(
                 msg["id"],
@@ -206,13 +188,21 @@ async def handle_synapse_register(
                 "unique_id": unique_id
             })
             return
+        logger.warning(f"Found bridge found for unique_id: {unique_id}")
 
         # Handle the registration
         result = await bridge.handle_registration(unique_id, app_metadata)
 
         # If registration was successful, register the WebSocket connection
         if result.get("success", False):
+            logger.debug(f"Registering connection {id(connection)} for {unique_id}")
             bridge.register_websocket_connection(unique_id, connection)
+            logger.debug(f"Connection registered. Bridge now has: {list(bridge._websocket_connections.keys())}")
+
+            # Cancel the connection timeout since registration was successful
+            bridge._cancel_connection_timeout(unique_id)
+        else:
+            logger.debug(f"Registration failed for {unique_id}: {result}")
 
         connection.send_result(msg["id"], result)
 
@@ -227,7 +217,10 @@ async def handle_synapse_register(
         logger.error(f"Error handling registration: {e}")
         connection.send_error(msg["id"], SynapseErrorCodes.REGISTRATION_FAILED, str(e))
 
-@websocket_api.websocket_command(HEARTBEAT_SCHEMA)
+@websocket_api.websocket_command({
+    vol.Required("type"): "synapse/heartbeat",
+    vol.Required("hash"): vol.Length(min=1, max=64),
+})
 @websocket_api.async_response
 async def handle_synapse_heartbeat(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
@@ -246,10 +239,12 @@ async def handle_synapse_heartbeat(
 
         current_hash = msg["hash"]
 
-        logger.debug(f"Received heartbeat with hash: {current_hash}")
+        logger.warning(f"Received heartbeat with hash: {current_hash}, connection: {id(connection)}")
 
         # Find the bridge for this connection
         bridge, unique_id = get_bridge_for_connection(hass, connection)
+
+        logger.warning(f"Bridge lookup result: bridge={bridge}, unique_id={unique_id}")
 
         if bridge is None:
             logger.warning("No bridge found for heartbeat")
@@ -282,7 +277,11 @@ async def handle_synapse_heartbeat(
         logger.error(f"Error handling heartbeat: {e}")
         connection.send_error(msg["id"], SynapseErrorCodes.HEARTBEAT_FAILED, str(e))
 
-@websocket_api.websocket_command(UPDATE_ENTITY_SCHEMA)
+@websocket_api.websocket_command({
+    vol.Required("type"): "synapse/update_entity",
+    vol.Required("unique_id"): vol.Length(min=1, max=255),
+    vol.Required("changes"): vol.Length(max=10000),
+})
 @websocket_api.async_response
 async def handle_synapse_update_entity(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
@@ -338,7 +337,71 @@ async def handle_synapse_update_entity(
         logger.error(f"Error handling entity update: {e}")
         connection.send_error(msg["id"], SynapseErrorCodes.UPDATE_FAILED, str(e))
 
-@websocket_api.websocket_command(UPDATE_CONFIGURATION_SCHEMA)
+@websocket_api.websocket_command({
+    vol.Required("type"): "synapse/patch_entity",
+    vol.Required("unique_id"): vol.Length(min=1, max=255),
+    vol.Required("data"): dict,
+})
+@websocket_api.async_response
+async def handle_synapse_patch_entity(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Handle simple entity patching from synapse apps."""
+    try:
+        # Check rate limiting
+        connection_id = str(id(connection))
+        if _check_rate_limit(connection_id, "patch_entity", max_per_minute=300):  # 5 per second max
+            connection.send_error(
+                msg["id"],
+                SynapseErrorCodes.RATE_LIMIT_EXCEEDED,
+                "Too many entity patches. Please reduce frequency."
+            )
+            return
+
+        # Validate message size
+        is_valid, error_msg = _validate_message_size(msg, max_size=10000)  # 10KB for entity patches
+        if not is_valid:
+            connection.send_error(msg["id"], SynapseErrorCodes.MESSAGE_TOO_LARGE, error_msg)
+            return
+
+        entity_unique_id = msg["unique_id"]
+        patch_data = msg["data"]
+
+        logger.debug(f"Received entity patch for {entity_unique_id}: {patch_data}")
+
+        # Find the bridge for this connection
+        bridge, unique_id = get_bridge_for_connection(hass, connection)
+
+        if bridge is None:
+            logger.warning("No bridge found for entity patch")
+            connection.send_result(msg["id"], {
+                "success": False,
+                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
+                "message": "No bridge found for entity patch - connection may be stale"
+            })
+            return
+
+        # Handle the entity patch
+        result = await bridge.handle_entity_patch(entity_unique_id, patch_data)
+
+        connection.send_result(msg["id"], result)
+
+    except vol.Invalid as e:
+        logger.warning(f"Invalid entity patch message format: {e}")
+        connection.send_error(
+            msg["id"],
+            SynapseErrorCodes.INVALID_MESSAGE_FORMAT,
+            f"Invalid entity patch format: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error handling entity patch: {e}")
+        connection.send_error(msg["id"], SynapseErrorCodes.UPDATE_FAILED, str(e))
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "synapse/update_configuration",
+    vol.Required("unique_id"): vol.Length(min=1, max=255),
+    vol.Required("app_metadata"): dict,
+})
 @websocket_api.async_response
 async def handle_synapse_update_configuration(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
@@ -361,12 +424,13 @@ async def handle_synapse_update_configuration(
             connection.send_error(msg["id"], SynapseErrorCodes.CONFIGURATION_TOO_LARGE, error_msg)
             return
 
-        configuration = msg["configuration"]
+        unique_id = msg["unique_id"]
+        app_metadata = msg["app_metadata"]
 
-        logger.info("Received full configuration update")
+        logger.info("Received configuration update")
 
         # Find the bridge for this connection
-        bridge, unique_id = get_bridge_for_connection(hass, connection)
+        bridge, bridge_unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
             logger.warning("No bridge found for configuration update")
@@ -378,7 +442,7 @@ async def handle_synapse_update_configuration(
             return
 
         # Handle the configuration update
-        result = await bridge.handle_configuration_update(configuration)
+        result = await bridge.handle_configuration_update(None, unique_id, app_metadata)
 
         connection.send_result(msg["id"], result)
 
@@ -393,19 +457,19 @@ async def handle_synapse_update_configuration(
         logger.error(f"Error handling configuration update: {e}")
         connection.send_error(msg["id"], SynapseErrorCodes.CONFIGURATION_UPDATE_FAILED, str(e))
 
-@websocket_api.websocket_command(GOING_OFFLINE_SCHEMA)
+@websocket_api.websocket_command({
+    vol.Required("type"): "synapse/going_offline",
+})
 @websocket_api.async_response
 async def handle_synapse_going_offline(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
 ) -> None:
     """Handle graceful app shutdown."""
     try:
-        unique_id = msg["unique_id"]
-
-        logger.info(f"Received going offline message from app: {unique_id}")
+        logger.info(f"Received going offline message from connection: {id(connection)}")
 
         # Find the bridge for this connection
-        bridge, bridge_unique_id = get_bridge_for_connection(hass, connection)
+        bridge, unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
             logger.warning("No bridge found for going offline message")
@@ -415,6 +479,8 @@ async def handle_synapse_going_offline(
                 "message": "No bridge found for going offline message - connection may be stale"
             })
             return
+
+        logger.info(f"App {unique_id} going offline gracefully")
 
         # Handle the going offline request
         result = await bridge.handle_going_offline(unique_id)
@@ -432,7 +498,10 @@ async def handle_synapse_going_offline(
         logger.error(f"Error handling going offline: {e}")
         connection.send_error(msg["id"], SynapseErrorCodes.GOING_OFFLINE_FAILED, str(e))
 
-@websocket_api.websocket_command(GET_HEALTH_SCHEMA)
+@websocket_api.websocket_command({
+    vol.Required("type"): "synapse/get_health",
+    vol.Optional("unique_id"): vol.Length(min=1, max=255),
+})
 @websocket_api.async_response
 async def handle_synapse_get_health(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
@@ -494,6 +563,7 @@ def register_websocket_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_synapse_register)
     websocket_api.async_register_command(hass, handle_synapse_heartbeat)
     websocket_api.async_register_command(hass, handle_synapse_update_entity)
+    websocket_api.async_register_command(hass, handle_synapse_patch_entity)
     websocket_api.async_register_command(hass, handle_synapse_update_configuration)
     websocket_api.async_register_command(hass, handle_synapse_going_offline)
     websocket_api.async_register_command(hass, handle_synapse_get_health)

@@ -124,7 +124,7 @@ PLATFORMS: list[str] = [
     # "water_heater",
 ]
 
-class SynapseBaseEntity:
+class SynapseBaseEntityData:
     """Common properties to all synapse entities"""
     attributes: object
     device_class: str | None = None
@@ -137,7 +137,7 @@ class SynapseBaseEntity:
     translation_key: str | None = None
     unique_id: str
 
-class SynapseSensorDefinition(SynapseBaseEntity):
+class SynapseSensorDefinition(SynapseBaseEntityData):
     capability_attributes: int
     last_reset: str
     native_unit_of_measurement: str
@@ -146,69 +146,69 @@ class SynapseSensorDefinition(SynapseBaseEntity):
     suggested_display_precision: int
     unit_of_measurement: str
 
-class SynapseAlarmControlPanelDefinition(SynapseBaseEntity):
+class SynapseAlarmControlPanelDefinition(SynapseBaseEntityData):
     changed_by: str
     code_arm_required: bool
     code_format: str
 
-class SynapseNumberDefinition(SynapseBaseEntity):
+class SynapseNumberDefinition(SynapseBaseEntityData):
     max_value: float
     min_value: float
     mode: str
     state: float
     step: float
 
-class SynapseButtonDefinition(SynapseBaseEntity):
+class SynapseButtonDefinition(SynapseBaseEntityData):
     pass
-class SynapseBinarySensorDefinition(SynapseBaseEntity):
+class SynapseBinarySensorDefinition(SynapseBaseEntityData):
     pass
-class SynapseClimateDefinition(SynapseBaseEntity):
+class SynapseClimateDefinition(SynapseBaseEntityData):
     pass
-class SynapseCoverDefinition(SynapseBaseEntity):
+class SynapseCoverDefinition(SynapseBaseEntityData):
     pass
-class SynapseDateDefinition(SynapseBaseEntity):
+class SynapseDateDefinition(SynapseBaseEntityData):
     pass
-class SynapseDateTimeDefinition(SynapseBaseEntity):
+class SynapseDateTimeDefinition(SynapseBaseEntityData):
     pass
-class SynapseFanDefinition(SynapseBaseEntity):
+class SynapseFanDefinition(SynapseBaseEntityData):
     pass
-class SynapseHumidifierDefinition(SynapseBaseEntity):
+class SynapseHumidifierDefinition(SynapseBaseEntityData):
     pass
-class SynapseImageDefinition(SynapseBaseEntity):
+class SynapseImageDefinition(SynapseBaseEntityData):
     pass
-class SynapseLawnMowerDefinition(SynapseBaseEntity):
+class SynapseLawnMowerDefinition(SynapseBaseEntityData):
     pass
-class SynapseLightDefinition(SynapseBaseEntity):
+class SynapseLightDefinition(SynapseBaseEntityData):
     pass
-class SynapseLockDefinition(SynapseBaseEntity):
+class SynapseLockDefinition(SynapseBaseEntityData):
     pass
-class SynapseMediaPlayerDefinition(SynapseBaseEntity):
+class SynapseMediaPlayerDefinition(SynapseBaseEntityData):
     pass
-class SynapseNotifyDefinition(SynapseBaseEntity):
+class SynapseNotifyDefinition(SynapseBaseEntityData):
     pass
-class SynapseRemoteDefinition(SynapseBaseEntity):
+class SynapseRemoteDefinition(SynapseBaseEntityData):
     pass
-class SynapseSceneDefinition(SynapseBaseEntity):
+class SynapseSceneDefinition(SynapseBaseEntityData):
     pass
-class SynapseSelectDefinition(SynapseBaseEntity):
+class SynapseSelectDefinition(SynapseBaseEntityData):
     pass
-class SynapseSirenDefinition(SynapseBaseEntity):
+class SynapseSirenDefinition(SynapseBaseEntityData):
     pass
-class SynapseSwitchDefinition(SynapseBaseEntity):
+class SynapseSwitchDefinition(SynapseBaseEntityData):
     pass
-class SynapseTextDefinition(SynapseBaseEntity):
+class SynapseTextDefinition(SynapseBaseEntityData):
     pass
-class SynapseTimeDefinition(SynapseBaseEntity):
+class SynapseTimeDefinition(SynapseBaseEntityData):
     pass
-class SynapseTodoListDefinition(SynapseBaseEntity):
+class SynapseTodoListDefinition(SynapseBaseEntityData):
     pass
-class SynapseUpdateDefinition(SynapseBaseEntity):
+class SynapseUpdateDefinition(SynapseBaseEntityData):
     pass
-class SynapseVacuumDefinition(SynapseBaseEntity):
+class SynapseVacuumDefinition(SynapseBaseEntityData):
     pass
-class SynapseValveDefinition(SynapseBaseEntity):
+class SynapseValveDefinition(SynapseBaseEntityData):
     pass
-class SynapseWaterHeaterDefinition(SynapseBaseEntity):
+class SynapseWaterHeaterDefinition(SynapseBaseEntityData):
     pass
-class SynapseCameraDefinition(SynapseBaseEntity):
+class SynapseCameraDefinition(SynapseBaseEntityData):
     pass

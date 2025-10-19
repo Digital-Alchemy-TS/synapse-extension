@@ -17,11 +17,18 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Setup the router platform."""
+    """Setup the button platform."""
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
-    entities: List[SynapseButtonDefinition] = bridge.app_data.get("button", [])
-    if entities is not None:
-      async_add_entities(SynapseButton(hass, bridge, entity) for entity in entities)
+
+    # Use dynamic configuration if available, otherwise fall back to static config
+    entities: List[SynapseButtonDefinition] = []
+    if bridge._current_configuration and "button" in bridge._current_configuration:
+        entities = bridge._current_configuration.get("button", [])
+    else:
+        entities = bridge.app_data.get("button", [])
+
+    if entities:
+        async_add_entities(SynapseButton(hass, bridge, entity) for entity in entities)
 
 class SynapseButton(SynapseBaseEntity, ButtonEntity):
     def __init__(
@@ -40,7 +47,7 @@ class SynapseButton(SynapseBaseEntity, ButtonEntity):
     @callback
     async def async_press(self, **kwargs: Any) -> None:
         """Handle the button press."""
-        self.hass.bus.async_fire(
-            self.bridge.event_name("press"),
+        await self.bridge.emit_event(
+            "press",
             {"unique_id": self.entity.get("unique_id"), **kwargs},
         )
