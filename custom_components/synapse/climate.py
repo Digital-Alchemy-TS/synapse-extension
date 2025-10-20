@@ -17,59 +17,54 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Setup the climate platform."""
+    """Set up the climate platform.
+
+    Creates climate entities from app configuration and sets up dynamic
+    entity registration for runtime configuration updates.
+    """
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
 
     # Use dynamic configuration if available, otherwise fall back to static config
     entities: List[SynapseClimateDefinition] = []
     if bridge._current_configuration and "climate" in bridge._current_configuration:
         entities = bridge._current_configuration.get("climate", [])
-        bridge.logger.info(f"Climate platform setup: Using dynamic configuration with {len(entities)} entities")
     else:
         entities = bridge.app_data.get("climate", [])
-        bridge.logger.info(f"Climate platform setup: Using static configuration with {len(entities)} entities")
 
     if entities:
-        bridge.logger.info(f"Adding {len(entities)} climate entities: {[e.get('name') for e in entities]}")
         async_add_entities(SynapseClimate(hass, bridge, entity) for entity in entities)
-    else:
-        bridge.logger.info("No climate entities to add")
 
     # Listen for registration events to add new entities dynamically
     async def handle_registration(event):
-        """Handle registration events to add new climate entities."""
-        bridge.logger.info(f"Climate platform received registration event: {event.data}")
-        bridge.logger.info(f"Event unique_id: {event.data.get('unique_id')}, bridge.metadata_unique_id: {bridge.metadata_unique_id}")
+        """Handle registration events to add new climate entities.
 
+        Called when an app sends updated configuration. Adds new climate
+        entities that weren't present in the initial configuration.
+        """
         if event.data.get("unique_id") == bridge.metadata_unique_id:
-            bridge.logger.info("Registration event received, checking for new climate entities")
-
             # Check if there are new climate entities in the dynamic configuration
             if bridge._current_configuration and "climate" in bridge._current_configuration:
                 new_entities = bridge._current_configuration.get("climate", [])
                 if new_entities:
-                    bridge.logger.info(f"Adding {len(new_entities)} new climate entities: {[e.get('name') for e in new_entities]}")
                     async_add_entities(SynapseClimate(hass, bridge, entity) for entity in new_entities)
-                else:
-                    bridge.logger.debug("No new climate entities found in registration")
-            else:
-                bridge.logger.debug("No dynamic configuration found for climate entities")
-        else:
-            bridge.logger.debug(f"Registration event not for this bridge: {event.data.get('unique_id')} != {bridge.metadata_unique_id}")
 
     # Register the event listener
-    bridge.logger.info(f"Registering climate platform event listener for: {bridge.event_name('register')}")
-    bridge.logger.info(f"Bridge metadata_unique_id: {bridge.metadata_unique_id}")
     hass.bus.async_listen(bridge.event_name("register"), handle_registration)
-    bridge.logger.info("Climate platform event listener registered successfully")
 
 class SynapseClimate(SynapseBaseEntity, ClimateEntity):
+    """Home Assistant climate entity for Synapse apps.
+
+    Represents a climate device from a connected NodeJS app. Handles
+    temperature control, HVAC modes, and other climate features through the bridge.
+    """
+
     def __init__(
         self,
         hass: HomeAssistant,
         bridge: SynapseBridge,
         entity: SynapseClimateDefinition,
     ) -> None:
+        """Initialize the climate entity."""
         super().__init__(hass, bridge, entity)
         self.logger: logging.Logger = logging.getLogger(__name__)
 

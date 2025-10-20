@@ -154,9 +154,6 @@ async def handle_synapse_register(
 
         # Check rate limiting
         connection_id = str(id(connection))
-        logger.debug("incoming register")
-        logger.debug(connection_id)
-        logger.debug(msg)
         if _check_rate_limit(connection_id, "register", max_per_minute=10):
             connection.send_error(
                 msg["id"],
@@ -174,13 +171,14 @@ async def handle_synapse_register(
         unique_id = msg["unique_id"]
         app_metadata = msg["app_metadata"]
 
-        logger.info(f"Received registration from app: {app_metadata.get('app')} with unique_id: {unique_id}")
+        logger.info(f"App '{app_metadata.get('app')}' attempting to register with unique_id: {unique_id}")
 
         # Get the bridge instance for this unique_id
         bridge = get_bridge_for_unique_id(hass, unique_id)
 
         if bridge is None:
             logger.warning(f"No bridge found for unique_id: {unique_id}")
+            logger.info("Tip: Ensure the app is properly configured in Home Assistant and try restarting the app")
             connection.send_result(msg["id"], {
                 "success": False,
                 "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
@@ -188,21 +186,17 @@ async def handle_synapse_register(
                 "unique_id": unique_id
             })
             return
-        logger.warning(f"Found bridge found for unique_id: {unique_id}")
+        logger.info(f"Bridge found for unique_id: {unique_id}")
 
         # Handle the registration
         result = await bridge.handle_registration(unique_id, app_metadata)
 
         # If registration was successful, register the WebSocket connection
         if result.get("success", False):
-            logger.debug(f"Registering connection {id(connection)} for {unique_id}")
             bridge.register_websocket_connection(unique_id, connection)
-            logger.debug(f"Connection registered. Bridge now has: {list(bridge._websocket_connections.keys())}")
-
             # Cancel the connection timeout since registration was successful
             bridge._cancel_connection_timeout(unique_id)
-        else:
-            logger.debug(f"Registration failed for {unique_id}: {result}")
+            logger.info(f"App '{app_metadata.get('app')}' successfully registered and connected")
 
         connection.send_result(msg["id"], result)
 
@@ -239,15 +233,12 @@ async def handle_synapse_heartbeat(
 
         current_hash = msg["hash"]
 
-        logger.warning(f"Received heartbeat with hash: {current_hash}, connection: {id(connection)}")
-
         # Find the bridge for this connection
         bridge, unique_id = get_bridge_for_connection(hass, connection)
 
-        logger.warning(f"Bridge lookup result: bridge={bridge}, unique_id={unique_id}")
-
         if bridge is None:
-            logger.warning("No bridge found for heartbeat")
+            logger.warning("No bridge found for heartbeat - connection may be stale")
+            logger.info("Tip: Check if the app is properly registered in Home Assistant configuration")
             connection.send_result(msg["id"], {
                 "success": False,
                 "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
@@ -260,9 +251,7 @@ async def handle_synapse_heartbeat(
 
         # If hash drift was detected, we might want to send additional commands
         if result.get("hash_drift_detected", False):
-            logger.info(f"Hash drift detected for {unique_id}, requesting configuration update")
-            # The app should respond to this by sending a configuration update
-            # We could also send a separate command here if needed
+            logger.info(f"Configuration drift detected for app {unique_id}, requesting update")
 
         connection.send_result(msg["id"], result)
 
@@ -306,8 +295,6 @@ async def handle_synapse_update_entity(
 
         entity_unique_id = msg["unique_id"]
         changes = msg["changes"]
-
-        logger.debug(f"Received entity update for {entity_unique_id}: {changes}")
 
         # Find the bridge for this connection
         bridge, unique_id = get_bridge_for_connection(hass, connection)
@@ -367,8 +354,6 @@ async def handle_synapse_patch_entity(
         entity_unique_id = msg["unique_id"]
         patch_data = msg["data"]
 
-        logger.debug(f"Received entity patch for {entity_unique_id}: {patch_data}")
-
         # Find the bridge for this connection
         bridge, unique_id = get_bridge_for_connection(hass, connection)
 
@@ -427,8 +412,6 @@ async def handle_synapse_update_configuration(
         unique_id = msg["unique_id"]
         app_metadata = msg["app_metadata"]
 
-        logger.info("Received configuration update")
-
         # Find the bridge for this connection
         bridge, bridge_unique_id = get_bridge_for_connection(hass, connection)
 
@@ -466,8 +449,6 @@ async def handle_synapse_going_offline(
 ) -> None:
     """Handle graceful app shutdown."""
     try:
-        logger.info(f"Received going offline message from connection: {id(connection)}")
-
         # Find the bridge for this connection
         bridge, unique_id = get_bridge_for_connection(hass, connection)
 
@@ -479,8 +460,6 @@ async def handle_synapse_going_offline(
                 "message": "No bridge found for going offline message - connection may be stale"
             })
             return
-
-        logger.info(f"App {unique_id} going offline gracefully")
 
         # Handle the going offline request
         result = await bridge.handle_going_offline(unique_id)
@@ -509,8 +488,6 @@ async def handle_synapse_get_health(
     """Handle health check requests."""
     try:
         unique_id = msg.get("unique_id")
-
-        logger.debug(f"Received health check request for unique_id: {unique_id}")
 
         # Find the bridge for this connection
         bridge, bridge_unique_id = get_bridge_for_connection(hass, connection)
@@ -558,6 +535,43 @@ async def handle_synapse_get_health(
         logger.error(f"Error handling health check: {e}")
         connection.send_error(msg["id"], SynapseErrorCodes.INTERNAL_ERROR, str(e))
 
+@websocket_api.websocket_command({
+    vol.Required("type"): "synapse/abandoned_entities",
+})
+@websocket_api.async_response
+async def handle_synapse_abandoned_entities(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Handle abandoned entities check requests."""
+    try:
+        # Find the bridge for this connection
+        bridge, unique_id = get_bridge_for_connection(hass, connection)
+
+        if bridge is None:
+            logger.warning("No bridge found for abandoned entities check")
+            connection.send_result(msg["id"], {
+                "success": False,
+                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
+                "message": "No bridge found for abandoned entities check - connection may be stale"
+            })
+            return
+
+        # Get abandoned entities information
+        result = await bridge.get_abandoned_entities(unique_id)
+
+        connection.send_result(msg["id"], result)
+
+    except vol.Invalid as e:
+        logger.warning(f"Invalid abandoned entities message format: {e}")
+        connection.send_error(
+            msg["id"],
+            SynapseErrorCodes.INVALID_MESSAGE_FORMAT,
+            f"Invalid abandoned entities format: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error handling abandoned entities check: {e}")
+        connection.send_error(msg["id"], SynapseErrorCodes.INTERNAL_ERROR, str(e))
+
 def register_websocket_handlers(hass: HomeAssistant) -> None:
     """Register all WebSocket command handlers."""
     websocket_api.async_register_command(hass, handle_synapse_register)
@@ -567,5 +581,6 @@ def register_websocket_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_synapse_update_configuration)
     websocket_api.async_register_command(hass, handle_synapse_going_offline)
     websocket_api.async_register_command(hass, handle_synapse_get_health)
+    websocket_api.async_register_command(hass, handle_synapse_abandoned_entities)
 
     logger.info("Synapse WebSocket handlers registered")

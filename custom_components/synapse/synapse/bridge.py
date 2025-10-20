@@ -61,6 +61,7 @@ from homeassistant.components import websocket_api
 from .const import (
     DOMAIN,
     PLATFORMS,
+    ENTITY_DOMAINS,
     SynapseApplication,
     SynapseMetadata,
     SynapseErrorCodes,
@@ -81,8 +82,16 @@ class SynapseBridge:
     - Manages connection timeouts and recovery
     """
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
-        """Initialize the bridge"""
+        """Initialize the bridge.
 
+        Creates a bridge instance for managing communication with a specific
+        NodeJS app. Handles WebSocket connections, entity management, and
+        configuration synchronization.
+
+        Args:
+            hass: Home Assistant instance
+            config_entry: Configuration entry for this app
+        """
         self.logger: logging.Logger = logging.getLogger(__name__)
         self.config_entry: ConfigEntry = config_entry
         self.primary_device: Optional[DeviceInfo] = None
@@ -91,6 +100,7 @@ class SynapseBridge:
         self.app_data: SynapseApplication = config_entry.data
         self.app_name: str = self.app_data.get("app", "")
         self.metadata_unique_id: str = self.app_data.get("unique_id", "")
+
         # Instance-based state management (fixes global state issue)
         self._hash_dict: Dict[str, str] = {}
         self._entity_registry: Dict[str, Dict[str, Any]] = {}
@@ -101,9 +111,10 @@ class SynapseBridge:
         self._current_devices: set = set()  # set of device unique_ids
         self._cleanup_mode: str = "delete"  # Default cleanup mode
         self._current_configuration: Dict[str, Any] = {}  # Current dynamic configuration
-        hass.data.setdefault(DOMAIN, {})[self.metadata_unique_id] = self
 
-        self.logger.debug(f"{self.app_name} init bridge")
+        # Track generated entities (created by Python code, not app registration)
+        self._generated_entities: set = set()  # set of unique_ids for generated entities
+        hass.data.setdefault(DOMAIN, {})[self.metadata_unique_id] = self
 
         # WebSocket connection tracking
         self._websocket_connections: Dict[str, Any] = {}
@@ -117,7 +128,7 @@ class SynapseBridge:
         # Load persisted hashes from config entry data
         self._load_persisted_hashes()
 
-        self.logger.info(f"{self.app_name} bridge initialized - WebSocket ready")
+        self.logger.info(f"Bridge initialized for app '{self.app_name}' - ready for connections")
 
     def event_name(self, event_type: str) -> str:
         """
@@ -132,8 +143,12 @@ class SynapseBridge:
         return f"{DOMAIN}/{event_type}"
 
     async def async_cleanup(self) -> None:
-        """Called when tearing down the bridge, clean up resources and prepare to go away"""
-        self.logger.info(f"{self.app_name} cleanup bridge")
+        """Clean up bridge resources when tearing down.
+
+        Cancels all timers, clears WebSocket connections, and resets
+        internal state. Called when the bridge is being destroyed.
+        """
+        self.logger.info(f"Cleaning up bridge for app '{self.app_name}'")
         if self._heartbeat_timer:
             self._heartbeat_timer.cancel()
 
@@ -146,9 +161,20 @@ class SynapseBridge:
         # Clean up WebSocket connections
         self._websocket_connections.clear()
 
+        # Clean up generated entities tracking
+        self._generated_entities.clear()
+
     def register_websocket_connection(self, unique_id: str, connection: Any) -> None:
-        """Register a WebSocket connection for an app."""
-        self.logger.info(f"Registering WebSocket connection for {unique_id}")
+        """Register a WebSocket connection for an app.
+
+        Establishes a new WebSocket connection and sets up monitoring timers.
+        Marks the bridge as online and fires health events for entity updates.
+
+        Args:
+            unique_id: Unique identifier for the app connection
+            connection: WebSocket connection object
+        """
+        self.logger.info(f"WebSocket connection established for app '{unique_id}'")
         self._websocket_connections[unique_id] = connection
         self._connection_timestamps[unique_id] = time.time()
         self._reconnect_attempts[unique_id] = 0
@@ -163,13 +189,13 @@ class SynapseBridge:
         self.online = True
 
         if was_offline:
-            self.logger.info(f"{self.app_name} restored contact via registration")
+            self.logger.info(f"App '{self.app_name}' restored contact via registration")
             # Fire health event to update entity availability
             self.hass.bus.async_fire(self.event_name("health"))
 
     def unregister_websocket_connection(self, unique_id: str) -> None:
         """Unregister a WebSocket connection for an app."""
-        self.logger.info(f"Unregistering WebSocket connection for {unique_id}")
+        self.logger.info(f"WebSocket connection closed for app '{unique_id}'")
         if unique_id in self._websocket_connections:
             del self._websocket_connections[unique_id]
 
@@ -202,7 +228,6 @@ class SynapseBridge:
             timer = self._connection_timeout_timers[unique_id]
             if timer:
                 timer.cancel()
-                self.logger.debug(f"Cancelled existing connection timeout for {unique_id}")
 
         # Set new timeout timer
         timer = self.hass.loop.call_later(
@@ -210,16 +235,13 @@ class SynapseBridge:
             lambda: self._handle_connection_timeout(unique_id)
         )
         self._connection_timeout_timers[unique_id] = timer
-        self.logger.warning(f"Set connection timeout for {unique_id} - {CONNECTION_TIMEOUT} seconds")
 
     def _handle_connection_timeout(self, unique_id: str) -> None:
         """Handle connection timeout for a specific connection."""
         if unique_id not in self._websocket_connections:
-            self.logger.debug(f"Connection timeout for {unique_id} - connection already cleaned up")
             return  # Connection already cleaned up
 
-        self.logger.warning(f"Connection timeout for {unique_id} - no registration within {CONNECTION_TIMEOUT} seconds")
-        self.logger.warning(f"Connection timeout firing - websocket connections: {list(self._websocket_connections.keys())}")
+        self.logger.warning(f"Connection timeout for app '{unique_id}' - no registration within {CONNECTION_TIMEOUT} seconds")
 
         # Clean up the connection
         self.unregister_websocket_connection(unique_id)
@@ -238,10 +260,7 @@ class SynapseBridge:
             timer = self._connection_timeout_timers[unique_id]
             if timer:
                 timer.cancel()
-                self.logger.warning(f"Cancelled connection timeout for {unique_id}")
             del self._connection_timeout_timers[unique_id]
-        else:
-            self.logger.debug(f"No connection timeout timer found for {unique_id}")
 
     async def send_to_app(self, unique_id: str, message: Dict[str, Any]) -> bool:
         """
@@ -258,17 +277,16 @@ class SynapseBridge:
             bool: True if message was sent successfully, False otherwise
         """
         if unique_id not in self._websocket_connections:
-            self.logger.warning(f"Cannot send message to {unique_id}: not connected")
+            self.logger.warning(f"Cannot send message to app '{unique_id}': not connected")
             return False
 
         try:
             connection = self._websocket_connections[unique_id]
             # Send message directly to the connection
             connection.send_message(message)
-            self.logger.debug(f"Sent message to {unique_id}: {message.get('type', 'unknown')}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to send message to {unique_id}: {e}")
+            self.logger.error(f"Failed to send message to app '{unique_id}': {e}")
             # Mark connection as potentially broken
             await self._handle_connection_failure(unique_id, str(e))
             return False
@@ -309,7 +327,6 @@ class SynapseBridge:
             except Exception as e:
                 self.logger.error(f"Failed to emit event to {unique_id}: {e}")
 
-        self.logger.debug(f"Emitted event '{event_type}' to {success_count}/{len(self._websocket_connections)} apps")
         return success_count > 0
 
     async def _handle_connection_failure(self, unique_id: str, error: str) -> None:
@@ -320,14 +337,14 @@ class SynapseBridge:
             unique_id: The unique identifier for the failed connection
             error: The error that caused the failure
         """
-        self.logger.warning(f"Connection failure for {unique_id}: {error}")
+        self.logger.warning(f"Connection failure for app '{unique_id}': {error}")
 
         # Increment reconnection attempts
         attempts = self._reconnect_attempts.get(unique_id, 0) + 1
         self._reconnect_attempts[unique_id] = attempts
 
         if attempts <= MAX_RECONNECT_ATTEMPTS:
-            self.logger.info(f"Attempting reconnection for {unique_id} (attempt {attempts}/{MAX_RECONNECT_ATTEMPTS})")
+            self.logger.info(f"Attempting reconnection for app '{unique_id}' (attempt {attempts}/{MAX_RECONNECT_ATTEMPTS})")
 
             # Calculate delay with exponential backoff
             delay = RECONNECT_DELAY * (2 ** (attempts - 1))
@@ -338,7 +355,7 @@ class SynapseBridge:
                 lambda: self._attempt_reconnection(unique_id)
             )
         else:
-            self.logger.error(f"Max reconnection attempts reached for {unique_id} - giving up")
+            self.logger.error(f"Max reconnection attempts reached for app '{unique_id}' - giving up")
             # Clean up the connection
             self.unregister_websocket_connection(unique_id)
             # Fire health event
@@ -350,7 +367,7 @@ class SynapseBridge:
             # Connection was already cleaned up
             return
 
-        self.logger.info(f"Reconnection attempt for {unique_id}")
+        self.logger.info(f"Reconnection attempt for app '{unique_id}'")
 
         # Reset reconnection attempts if we're back online
         if self.online:
@@ -415,6 +432,99 @@ class SynapseBridge:
             "last_heartbeat": self._last_heartbeat_time
         }
 
+    async def get_abandoned_entities(self, unique_id: str) -> Dict[str, Any]:
+        """
+        Find and log all entities that share a unique_id with the app but are not currently owned by the app.
+        These entities would be in the unavailable condition due to not being in the current configuration.
+
+        Args:
+            unique_id: The unique identifier for the app
+
+        Returns:
+            Dict containing abandoned entities information
+        """
+
+        try:
+            # Get the entity registry
+            entity_registry = er.async_get(self.hass)
+
+            # Get all entities for this platform (synapse)
+            all_synapse_entities = []
+            for entity_id, entity_entry in entity_registry.entities.items():
+                if entity_entry.platform == DOMAIN and entity_entry.config_entry_id == self.config_entry.entry_id:
+                    all_synapse_entities.append({
+                        "entity_id": entity_id,
+                        "unique_id": entity_entry.unique_id,
+                        "domain": entity_entry.domain,
+                        "name": entity_entry.name or entity_entry.original_name,
+                        "disabled": entity_entry.disabled
+                    })
+
+
+            # Find entities that are not in the current configuration
+            abandoned_entities = []
+            current_entity_unique_ids = set()
+
+            # Collect all unique_ids from current configuration
+            for domain, entities in self._current_entities.items():
+                current_entity_unique_ids.update(entities)
+
+            # Also check current dynamic configuration
+            if self._current_configuration:
+                for domain in ENTITY_DOMAINS:
+                    entities = self._current_configuration.get(domain, [])
+                    if isinstance(entities, list):
+                        for entity_data in entities:
+                            if isinstance(entity_data, dict) and entity_data.get("unique_id"):
+                                current_entity_unique_ids.add(entity_data.get("unique_id"))
+
+
+            # Find abandoned entities (exist in registry but not in current configuration)
+            for entity_info in all_synapse_entities:
+                entity_unique_id = entity_info["unique_id"]
+
+                # Skip generated entities (created by Python code, not app registration)
+                if self.is_generated_entity(entity_unique_id):
+                    continue
+
+                if entity_unique_id not in current_entity_unique_ids:
+                    # This entity exists in the registry but not in current configuration
+                    abandoned_entities.append(entity_info)
+                    self.logger.warning(f"ABANDONED ENTITY: {entity_info['entity_id']} ({entity_info['name']}) - unique_id: {entity_unique_id}, domain: {entity_info['domain']}")
+
+            # Count generated entities for logging
+            generated_entities_count = 0
+            for entity_info in all_synapse_entities:
+                if self.is_generated_entity(entity_info["unique_id"]):
+                    generated_entities_count += 1
+
+            # Log summary
+            if abandoned_entities:
+                self.logger.warning(f"Found {len(abandoned_entities)} abandoned entities for app '{unique_id}':")
+                for entity in abandoned_entities:
+                    self.logger.warning(f"  - {entity['entity_id']} ({entity['name']}) - {entity['unique_id']}")
+            else:
+                self.logger.info(f"No abandoned entities found for app '{unique_id}'")
+
+            return {
+                "success": True,
+                "abandoned_entities": abandoned_entities,
+                "total_abandoned": len(abandoned_entities),
+                "total_registry_entities": len(all_synapse_entities),
+                "generated_entities_count": generated_entities_count,
+                "current_configuration_entities": len(current_entity_unique_ids),
+                "app_unique_id": unique_id,
+                "cleanup_mode": self.get_cleanup_mode()
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error checking for abandoned entities: {e}")
+            return {
+                "success": False,
+                "error": f"Failed to check abandoned entities: {str(e)}",
+                "app_unique_id": unique_id
+            }
+
     async def handle_entity_patch(self, entity_unique_id: str, patch_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Handle simple entity patching - just update the entity data if it exists.
@@ -426,7 +536,6 @@ class SynapseBridge:
         Returns:
             Dict containing success status and response data
         """
-        self.logger.debug(f"Handling entity patch for {entity_unique_id}: {patch_data}")
 
         try:
             # Validate patch data structure
@@ -448,7 +557,6 @@ class SynapseBridge:
                     break
 
             if not entity_found:
-                self.logger.warning(f"Entity {entity_unique_id} not found in current entities")
                 return {
                     "success": False,
                     "error_code": SynapseErrorCodes.ENTITY_VALIDATION_FAILED,
@@ -466,7 +574,6 @@ class SynapseBridge:
                 }
             )
 
-            self.logger.debug(f"Entity patch event fired for {entity_unique_id}")
 
             return {
                 "success": True,
@@ -492,7 +599,6 @@ class SynapseBridge:
             persisted_hashes = self.config_entry.data.get("_persisted_hashes", {})
             if isinstance(persisted_hashes, dict):
                 self._hash_dict.update(persisted_hashes)
-                self.logger.debug(f"Loaded {len(persisted_hashes)} persisted hashes")
             else:
                 self.logger.warning("Invalid persisted hashes format in config entry")
         except Exception as e:
@@ -510,7 +616,6 @@ class SynapseBridge:
                 self.config_entry,
                 data=new_data
             )
-            self.logger.debug(f"Persisted {len(self._hash_dict)} hashes to config entry")
         except Exception as e:
             self.logger.error(f"Error persisting hashes: {e}")
 
@@ -535,6 +640,36 @@ class SynapseBridge:
         """
         return self._cleanup_mode
 
+    def register_generated_entity(self, unique_id: str) -> None:
+        """
+        Register an entity as generated by Python code (not by app registration).
+
+        Args:
+            unique_id: The unique identifier for the generated entity
+        """
+        self._generated_entities.add(unique_id)
+
+    def unregister_generated_entity(self, unique_id: str) -> None:
+        """
+        Unregister a generated entity.
+
+        Args:
+            unique_id: The unique identifier for the generated entity
+        """
+        self._generated_entities.discard(unique_id)
+
+    def is_generated_entity(self, unique_id: str) -> bool:
+        """
+        Check if an entity is generated by Python code (not by app registration).
+
+        Args:
+            unique_id: The unique identifier for the entity
+
+        Returns:
+            bool: True if the entity is generated by Python code, False otherwise
+        """
+        return unique_id in self._generated_entities
+
     async def _update_hash(self, unique_id: str, hash_value: str) -> None:
         """
         Update hash for an app and persist it.
@@ -545,30 +680,24 @@ class SynapseBridge:
         """
         self._hash_dict[unique_id] = hash_value
         await self._persist_hashes()
-        self.logger.debug(f"Updated and persisted hash for {unique_id}: {hash_value}")
 
     def _reset_heartbeat_timer(self) -> None:
         """Reset the heartbeat timer to wait for the next heartbeat."""
         if self._heartbeat_timer:
             self._heartbeat_timer.cancel()
-            self.logger.debug(f"Cancelled existing heartbeat timer")
 
         # Set timer for APP_OFFLINE_DELAY seconds
         self._heartbeat_timer = self.hass.loop.call_later(
             APP_OFFLINE_DELAY,
             self._handle_heartbeat_timeout
         )
-        self.logger.debug(f"Set heartbeat timer for {APP_OFFLINE_DELAY} seconds")
 
     def _handle_heartbeat_timeout(self) -> None:
         """Handle heartbeat timeout - mark app as offline."""
         if not self._websocket_connections:
-            self.logger.debug("No websocket connections to monitor, skipping timeout")
             return  # No connections to monitor
 
-        self.logger.warning(f"{self.app_name} heartbeat timeout - marking offline")
-        self.logger.warning(f"Websocket connections: {list(self._websocket_connections.keys())}")
-        self.logger.warning(f"Last heartbeat time: {getattr(self, '_last_heartbeat_time', 'never')}")
+        self.logger.warning(f"App '{self.app_name}' heartbeat timeout - marking offline")
         self.online = False
 
         # Fire health event to update entity availability
@@ -603,11 +732,10 @@ class SynapseBridge:
         Returns:
             Dict containing success status, error codes, and response data
         """
-        self.logger.info(f"Handling registration for {unique_id}")
 
         # Step 1: Check if unique_id is already connected
         if self.is_unique_id_connected(unique_id):
-            self.logger.warning(f"Registration failed: {unique_id} is already connected")
+            self.logger.warning(f"Registration failed: app '{unique_id}' is already connected")
             return {
                 "success": False,
                 "error_code": SynapseErrorCodes.ALREADY_CONNECTED,
@@ -617,7 +745,7 @@ class SynapseBridge:
 
         # Step 2: Check if app is registered in config
         if not self.is_app_registered(unique_id):
-            self.logger.warning(f"Registration failed: {unique_id} is not registered")
+            self.logger.warning(f"Registration failed: app '{unique_id}' is not registered")
             return {
                 "success": False,
                 "error_code": SynapseErrorCodes.NOT_REGISTERED,
@@ -629,12 +757,10 @@ class SynapseBridge:
         last_known_hash = self.get_last_known_hash(unique_id)
         current_hash = app_metadata.get("hash", "")
 
-        self.logger.info(f"Hash comparison for {unique_id}: last_known='{last_known_hash}', current='{current_hash}'")
-
         # Check if hash has changed since last connection
         hash_changed = False
         if last_known_hash and current_hash and last_known_hash != current_hash:
-            self.logger.info(f"Hash changed during registration for {unique_id}: {last_known_hash} -> {current_hash}")
+            self.logger.info(f"Configuration changed for app '{unique_id}', requesting update")
             hash_changed = True
 
             # Trigger immediate configuration sync
@@ -642,18 +768,15 @@ class SynapseBridge:
             sent_successfully = await self.send_to_app(unique_id, request_message)
 
             if not sent_successfully:
-                self.logger.warning(f"Failed to send configuration request during registration for {unique_id}")
+                self.logger.warning(f"Failed to send configuration request during registration for app '{unique_id}'")
         elif not last_known_hash and current_hash:
-            self.logger.info(f"First time registration for {unique_id} with hash: {current_hash}")
+            self.logger.info(f"First time registration for app '{unique_id}'")
         elif not current_hash:
-            self.logger.warning(f"No hash provided in registration for {unique_id}")
-        else:
-            self.logger.info(f"Hash unchanged for {unique_id}: {current_hash}")
+            self.logger.warning(f"No hash provided in registration for app '{unique_id}'")
 
         # Step 4: Store cleanup metadata from registration
         cleanup_mode = app_metadata.get("cleanup", "delete")
         self._cleanup_mode = cleanup_mode
-        self.logger.debug(f"Stored cleanup mode '{cleanup_mode}' for {unique_id}")
 
         # Step 5: Process app metadata (entities, hash, etc.)
         metadata_result = await self._process_app_metadata(unique_id, app_metadata)
@@ -667,7 +790,7 @@ class SynapseBridge:
             }
 
         # Step 6: Registration successful - reset reconnection attempts
-        self.logger.info(f"Registration successful for {unique_id}")
+        self.logger.info(f"Registration successful for app '{unique_id}'")
 
         # Reset reconnection attempts on successful registration
         if unique_id in self._reconnect_attempts:
@@ -697,11 +820,8 @@ class SynapseBridge:
         """
         import time
 
-        self.logger.warning(f"Handling heartbeat for {unique_id} with hash: {current_hash}")
-
         # Update heartbeat tracking
         self._last_heartbeat_time = time.time()
-        self.logger.warning(f"Updated last heartbeat time to: {self._last_heartbeat_time}")
         self._reset_heartbeat_timer()
 
         # Check if this is the first heartbeat (going from offline to online)
@@ -709,18 +829,16 @@ class SynapseBridge:
         self.online = True
 
         if was_offline:
-            self.logger.info(f"{self.app_name} restored contact via heartbeat")
+            self.logger.info(f"App '{self.app_name}' restored contact via heartbeat")
             # Fire health event to update entity availability
             self.hass.bus.async_fire(f"{DOMAIN}/health/{self.app_name}")
 
         # Get the last known hash for this app
         last_known_hash = self.get_last_known_hash(unique_id)
 
-        self.logger.info(f"Heartbeat hash comparison for {unique_id}: last_known='{last_known_hash}', current='{current_hash}'")
-
         # Check for hash drift
         if last_known_hash and current_hash != last_known_hash:
-            self.logger.info(f"Hash drift detected for {unique_id}: {last_known_hash} -> {current_hash}")
+            self.logger.info(f"Configuration drift detected for app '{unique_id}', requesting update")
 
             # Send configuration request to the app
             request_message = self.request_configuration(unique_id)
@@ -769,7 +887,7 @@ class SynapseBridge:
         Returns:
             Dict containing success status and response data
         """
-        self.logger.info(f"App {unique_id} going offline gracefully")
+        self.logger.info(f"App '{unique_id}' going offline gracefully")
 
         # Immediately mark as offline
         self.online = False
@@ -785,7 +903,7 @@ class SynapseBridge:
         # Fire health event to update entity availability
         self.hass.bus.async_fire(self.event_name("health"))
 
-        self.logger.info(f"App {unique_id} marked as offline - graceful shutdown complete")
+        self.logger.info(f"App '{unique_id}' marked as offline - graceful shutdown complete")
 
         return {
             "success": True,
@@ -801,7 +919,6 @@ class SynapseBridge:
         This processes runtime entity patches (state, icon, attributes, etc.)
         that don't change the configuration hash.
         """
-        self.logger.debug(f"Handling entity update for {entity_unique_id}: {changes}")
 
         try:
             # Validate changes structure
@@ -823,7 +940,6 @@ class SynapseBridge:
                     break
 
             if not entity_found:
-                self.logger.warning(f"Entity {entity_unique_id} not found in current entities")
                 return {
                     "success": False,
                     "error_code": SynapseErrorCodes.ENTITY_VALIDATION_FAILED,
@@ -839,7 +955,6 @@ class SynapseBridge:
 
             invalid_fields = set(changes.keys()) - allowed_update_fields
             if invalid_fields:
-                self.logger.warning(f"Invalid update fields for {entity_unique_id}: {invalid_fields}")
                 return {
                     "success": False,
                     "error_code": SynapseErrorCodes.ENTITY_VALIDATION_FAILED,
@@ -945,7 +1060,6 @@ class SynapseBridge:
             # Check for validation errors
             if validation_errors:
                 error_message = "; ".join(validation_errors)
-                self.logger.warning(f"Entity update validation failed for {entity_unique_id}: {error_message}")
                 return {
                     "success": False,
                     "error_code": SynapseErrorCodes.ENTITY_VALIDATION_FAILED,
@@ -964,7 +1078,6 @@ class SynapseBridge:
                 }
             )
 
-            self.logger.debug(f"Entity update event fired for {entity_unique_id}")
 
             return {
                 "success": True,
@@ -997,11 +1110,10 @@ class SynapseBridge:
         Returns:
             Dict containing processing results
         """
-        self.logger.info(f"Processing app metadata for {unique_id}")
 
         # Extract entity configuration from metadata
         entity_config = {}
-        for domain in ['sensor', 'switch', 'binary_sensor', 'button', 'climate', 'lock', 'number', 'select', 'text', 'date', 'time', 'datetime', 'scene']:
+        for domain in ENTITY_DOMAINS:
             if domain in app_metadata:
                 entity_config[domain] = app_metadata[domain]
 
@@ -1010,31 +1122,20 @@ class SynapseBridge:
 
         # Process entities if present
         if entity_config:
-            self.logger.info(f"Found entity configuration: {list(entity_config.keys())}")
-            for domain, entities in entity_config.items():
-                self.logger.info(f"  {domain}: {len(entities)} entities")
-                for entity in entities:
-                    self.logger.debug(f"    - {entity.get('name', 'unnamed')} ({entity.get('unique_id', 'no-id')})")
-
-            # Process entities
-            self.logger.info(f"Processing entities from metadata for {unique_id}")
+            self.logger.info(f"Processing {sum(len(entities) for entities in entity_config.values() if isinstance(entities, list))} entities from app metadata")
             try:
                 await self._process_configuration(entity_config)
-                self.logger.info(f"Successfully processed {len(entity_config)} entity domains")
             except Exception as e:
                 self.logger.error(f"Error processing entities from metadata: {e}")
                 return {
                     "success": False,
                     "error": f"Entity processing failed: {str(e)}"
                 }
-        else:
-            self.logger.debug("No entity configuration in metadata, cleared _current_configuration")
 
         # Update hash if provided
         current_hash = app_metadata.get("hash", "")
         if current_hash:
             await self._update_hash(unique_id, current_hash)
-            self.logger.debug(f"Updated hash for {unique_id}: {current_hash}")
 
         # Fire registration event to invalidate entity configuration caches
         self.hass.bus.async_fire(self.event_name("register"), {
@@ -1060,7 +1161,6 @@ class SynapseBridge:
             unique_id: Optional unique_id (if not provided, uses bridge's metadata_unique_id)
             app_metadata: Optional app metadata (if provided, processes metadata instead of configuration)
         """
-        self.logger.info("Handling configuration update")
 
         try:
             # Use provided unique_id or fall back to bridge's metadata_unique_id
@@ -1068,7 +1168,6 @@ class SynapseBridge:
 
             # If app_metadata is provided, process it directly
             if app_metadata:
-                self.logger.info("Processing configuration update with app metadata")
                 result = await self._process_app_metadata(target_unique_id, app_metadata)
 
                 if result["success"]:
@@ -1100,8 +1199,6 @@ class SynapseBridge:
             # Fire registration event to invalidate entity configuration caches
             self.hass.bus.async_fire(self.event_name("register"))
 
-            self.logger.info("Configuration update completed successfully")
-
             return {
                 "success": True,
                 "configuration_updated": True,
@@ -1123,28 +1220,24 @@ class SynapseBridge:
         Args:
             configuration: The configuration data from storage.dump()
         """
-        self.logger.info("Processing configuration update")
-        self.logger.info(f"Configuration contains domains: {list(configuration.keys())}")
-
         # Log entity counts by domain
+        total_entities = 0
         for domain, entities in configuration.items():
             if isinstance(entities, list):
-                self.logger.info(f"  {domain}: {len(entities)} entities")
+                total_entities += len(entities)
             else:
                 self.logger.warning(f"  {domain}: invalid format (expected list, got {type(entities).__name__})")
+
+        self.logger.info(f"Processing configuration update with {total_entities} entities across {len(configuration)} domains")
 
         # Store the current configuration for entity availability checks
         self._current_configuration = configuration
 
         # Refresh devices first
-        self.logger.info("Refreshing device registry")
         await self._refresh_devices()
 
         # Refresh entities for each domain
-        self.logger.info("Refreshing entity registry")
         await self._refresh_entities(configuration)
-
-        self.logger.info("Configuration processing completed")
 
     def format_device_info(self, device: Optional[SynapseMetadata] = None) -> Dict[str, Any]:
         """Translate between synapse data objects and hass device info."""
@@ -1169,18 +1262,15 @@ class SynapseBridge:
 
     async def async_reload(self) -> None:
         """Reload the bridge and update local info"""
-        self.logger.debug(f"{self.app_name} request reload")
 
         # Check if we have an active WebSocket connection
         if not self.is_unique_id_connected(self.metadata_unique_id):
-            self.logger.warning(f"{self.app_name} no active WebSocket connection for reload")
-            # Don't mark as online during startup when no clients are connected
-            # Only set online to True if we actually have a connection
+            self.logger.warning(f"App '{self.app_name}' has no active WebSocket connection for reload")
             return
 
         try:
             # Request configuration update from the app
-            self.logger.info(f"{self.app_name} requesting configuration update for reload")
+            self.logger.info(f"Requesting configuration update for app '{self.app_name}'")
 
             # Send configuration request to the app
             request_message = {
@@ -1190,15 +1280,11 @@ class SynapseBridge:
 
             success = await self.send_to_app(self.metadata_unique_id, request_message)
 
-            if success:
-                self.logger.info(f"{self.app_name} configuration request sent successfully")
-                # The app should respond with a synapse/update_configuration command
-                # which will be handled by handle_configuration_update()
-            else:
-                self.logger.warning(f"{self.app_name} failed to send configuration request")
+            if not success:
+                self.logger.warning(f"Failed to send configuration request to app '{self.app_name}'")
 
         except Exception as e:
-            self.logger.error(f"{self.app_name} error during reload: {e}")
+            self.logger.error(f"Error during reload for app '{self.app_name}': {e}")
 
         # Only mark as online if we have an active connection
         if self.is_unique_id_connected(self.metadata_unique_id):

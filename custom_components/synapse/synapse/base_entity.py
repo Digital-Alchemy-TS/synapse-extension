@@ -23,26 +23,38 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 
 from .bridge import SynapseBridge
-from .const import SynapseBaseEntityData
+from .const import SynapseBaseEntityData, ENTITY_DOMAINS
 
 class SynapseBaseEntity(Entity):
+    """Base entity class for all Synapse entities.
+
+    Provides common functionality for entities from connected NodeJS apps,
+    including device association, availability tracking, and live updates.
+    """
+
     def __init__(
         self,
         hass: HomeAssistant,
         bridge: SynapseBridge,
         entity: SynapseBaseEntityData
     ) -> None:
-        """Init"""
+        """Initialize the base entity.
+
+        Args:
+            hass: Home Assistant instance
+            bridge: Bridge instance for this app
+            entity: Entity configuration data
+        """
         self.logger: logging.Logger = logging.getLogger(__name__)
         self.hass: HomeAssistant = hass
         self.bridge: SynapseBridge = bridge
         self.entity: SynapseBaseEntityData = entity
-        self.logger.debug(f"{self.bridge.app_name} init entity: {self.entity.get('name')}")
 
         # Cache for configuration existence check
         self._config_exists_cache: Optional[bool] = None
         self._config_cache_valid = False
 
+        # Set up event listeners for entity updates and availability changes
         self.async_on_remove(
             self.hass.bus.async_listen(
                 self.bridge.event_name("update"),
@@ -64,7 +76,12 @@ class SynapseBaseEntity(Entity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device registry information for this entity."""
+        """Return device registry information for this entity.
+
+        First tries to find a specific device by device_id, then falls back
+        to the primary app device. Returns None during startup if no devices
+        are available yet.
+        """
         declared_device = self.entity.get("device_id", "")
         if len(declared_device) > 0:
             device = self.bridge.via_primary_device.get(declared_device)
@@ -74,7 +91,7 @@ class SynapseBaseEntity(Entity):
             if self.bridge.online:
                 self.logger.error(f"{self.bridge.app_name}:{self.entity.get('name')} cannot find device info for {declared_device}")
 
-        # everything is associated with the app device if all else fails
+        # Everything is associated with the app device if all else fails
         if self.bridge.primary_device is not None:
             return self.bridge.primary_device
 
@@ -123,10 +140,12 @@ class SynapseBaseEntity(Entity):
 
     @property
     def available(self) -> bool:
-        """
-        - if the bridge is offline
-        - if the entity opts into being unavail but still declared (ts side)
-        - if cleanup mode is "abandon" and entity doesn't exist in current configuration
+        """Return True if the entity is available.
+
+        An entity is unavailable if:
+        - The bridge is offline
+        - The entity is explicitly disabled
+        - Cleanup mode is "abandon" and entity doesn't exist in current configuration
         """
         if self.entity.get("disabled") == True:
             return False
@@ -144,16 +163,11 @@ class SynapseBaseEntity(Entity):
                 self._config_exists_cache = config_exists
                 self._config_cache_valid = True
 
-            self.logger.debug(f"Entity {self.entity.get('unique_id')} - cleanup_mode: {cleanup_mode}, config_exists: {config_exists}, bridge.online: {self.bridge.online}")
-
             if not config_exists:
                 # Entity doesn't exist in current configuration - mark as unavailable
-                self.logger.debug(f"Entity {self.entity.get('unique_id')} marked as unavailable (not in config)")
                 return False
 
-        result = self.bridge.online
-        self.logger.debug(f"Entity {self.entity.get('unique_id')} availability: {result} (bridge online: {self.bridge.online})")
-        return result
+        return self.bridge.online
 
     def _check_configuration_exists(self) -> bool:
         """Check if this entity exists in the current configuration."""
@@ -161,39 +175,26 @@ class SynapseBaseEntity(Entity):
         if not entity_unique_id:
             return False
 
-        self.logger.debug(f"Checking if entity {entity_unique_id} exists in configuration")
-        self.logger.debug(f"_current_entities: {self.bridge._current_entities}")
-        self.logger.debug(f"_current_configuration: {self.bridge._current_configuration}")
-
         # Check if entity exists in the bridge's current entities tracking
         # This is populated during configuration updates
         if self.bridge._current_entities:
-            self.logger.debug(f"Checking _current_entities for entity {entity_unique_id}")
             for domain, domain_entities in self.bridge._current_entities.items():
                 if entity_unique_id in domain_entities:
-                    self.logger.debug(f"Entity {entity_unique_id} found in _current_entities domain {domain}")
                     return True
-            # Entity not found in current entities
-            self.logger.debug(f"Entity {entity_unique_id} not found in current entities: {self.bridge._current_entities}")
             return False
 
         # If _current_entities is empty, check the current dynamic configuration
         if self.bridge._current_configuration:
-            self.logger.debug(f"Checking _current_configuration for entity {entity_unique_id}")
-            for domain in ['sensor', 'switch', 'binary_sensor', 'button', 'climate', 'lock', 'number', 'select', 'text', 'date', 'time', 'datetime', 'scene']:
+            for domain in ENTITY_DOMAINS:
                 entities = self.bridge._current_configuration.get(domain, [])
                 if isinstance(entities, list):
                     for entity_data in entities:
                         if entity_data.get("unique_id") == entity_unique_id:
-                            self.logger.debug(f"Entity {entity_unique_id} found in current configuration domain {domain}")
                             return True
-            # Entity not found in current configuration
-            self.logger.debug(f"Entity {entity_unique_id} not found in current configuration")
             return False
 
         # If no current configuration has been received yet, assume entity does not exist
         # This handles the initial registration phase before configuration update
-        self.logger.debug(f"No current configuration received yet, assuming entity {entity_unique_id} does not exist")
         return False
 
     @callback
@@ -204,14 +205,11 @@ class SynapseBaseEntity(Entity):
         # this is probably worth changing to namespace/{unique_id}/update or something
         # easier to debug + less useless event handle executions
         if event.data.get("unique_id") == self.entity.get("unique_id"):
-            self.logger.debug(f"{self.bridge.app_name}:{self.entity.get('name')} receive update")
-
             # Merge the incoming changes with the existing entity data
             incoming_data = event.data.get("data", {})
             if isinstance(incoming_data, dict):
                 # Update the entity data with the new values
                 self.entity.update(incoming_data)
-                self.logger.debug(f"Updated entity data: {incoming_data}")
 
             # Trigger a state update to reflect the changes
             self.async_write_ha_state()
@@ -225,12 +223,10 @@ class SynapseBaseEntity(Entity):
     def _handle_registration_event(self, event: Any) -> None:
         """Handle registration events that may change entity configuration."""
         # Invalidate configuration existence cache since registration may change entity configuration
-        self.logger.debug(f"Entity {self.entity.get('unique_id')} received registration event, invalidating config cache")
         self._invalidate_config_cache()
         self.async_schedule_update_ha_state(True)
 
     def _invalidate_config_cache(self) -> None:
         """Invalidate the configuration existence cache."""
-        self.logger.debug(f"Entity {self.entity.get('unique_id')} invalidating config cache (was valid: {self._config_cache_valid})")
         self._config_cache_valid = False
         self._config_exists_cache = None

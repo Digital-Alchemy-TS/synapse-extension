@@ -18,7 +18,11 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Setup the binary_sensor platform."""
+    """Set up the binary_sensor platform.
+
+    Creates binary sensor entities from app configuration, adds a health
+    sensor, and sets up dynamic entity registration for runtime updates.
+    """
     bridge: SynapseBridge = hass.data[DOMAIN][config_entry.entry_id]
 
     # Use dynamic configuration if available, otherwise fall back to static config
@@ -31,52 +35,52 @@ async def async_setup_entry(
     if entities:
         async_add_entities(SynapseBinarySensor(hass, bridge, entity) for entity in entities)
 
-    # add health check sensor
+    # Add health check sensor to monitor app connectivity
     health = SynapseHealthSensor(bridge, hass)
+    # Register the health sensor as a generated entity (not from app registration)
+    bridge.register_generated_entity(health.unique_id)
     async_add_entities([health])
 
     # Listen for registration events to add new entities dynamically
     async def handle_registration(event):
-        """Handle registration events to add new binary_sensor entities."""
-        bridge.logger.info(f"Binary sensor platform received registration event: {event.data}")
-        bridge.logger.info(f"Event unique_id: {event.data.get('unique_id')}, bridge.metadata_unique_id: {bridge.metadata_unique_id}")
+        """Handle registration events to add new binary_sensor entities.
 
+        Called when an app sends updated configuration. Adds new binary sensor
+        entities that weren't present in the initial configuration.
+        """
         if event.data.get("unique_id") == bridge.metadata_unique_id:
-            bridge.logger.info("Registration event received, checking for new binary_sensor entities")
-
             # Check if there are new binary_sensor entities in the dynamic configuration
             if bridge._current_configuration and "binary_sensor" in bridge._current_configuration:
                 new_entities = bridge._current_configuration.get("binary_sensor", [])
                 if new_entities:
-                    bridge.logger.info(f"Adding {len(new_entities)} new binary_sensor entities: {[e.get('name') for e in new_entities]}")
                     async_add_entities(SynapseBinarySensor(hass, bridge, entity) for entity in new_entities)
-                else:
-                    bridge.logger.debug("No new binary_sensor entities found in registration")
-            else:
-                bridge.logger.debug("No dynamic configuration found for binary_sensor entities")
-        else:
-            bridge.logger.debug(f"Registration event not for this bridge: {event.data.get('unique_id')} != {bridge.metadata_unique_id}")
 
     # Register the event listener
-    bridge.logger.info(f"Registering binary_sensor platform event listener for: {bridge.event_name('register')}")
-    bridge.logger.info(f"Bridge metadata_unique_id: {bridge.metadata_unique_id}")
     hass.bus.async_listen(bridge.event_name("register"), handle_registration)
-    bridge.logger.info("Binary sensor platform event listener registered successfully")
 
 class SynapseBinarySensor(SynapseBaseEntity, BinarySensorEntity):
+    """Home Assistant binary sensor entity for Synapse apps.
+
+    Represents a binary sensor from a connected NodeJS app. Handles state
+    updates and configuration changes through the bridge.
+    """
+
     def __init__(
         self,
         hass: HomeAssistant,
         bridge: SynapseBridge,
         entity: SynapseBinarySensorDefinition,
     ) -> None:
+        """Initialize the binary sensor entity."""
         super().__init__(hass, bridge, entity)
         self.logger: logging.Logger = logging.getLogger(__name__)
 
     @property
     def device_class(self) -> Optional[str]:
+        """Return the device class of the binary sensor."""
         return self.entity.get("device_class")
 
     @property
     def is_on(self) -> bool:
+        """Return True if the binary sensor is on."""
         return self.entity.get("is_on", False)
