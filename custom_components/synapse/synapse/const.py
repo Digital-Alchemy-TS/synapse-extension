@@ -1,9 +1,52 @@
-APP_OFFLINE_DELAY=30
-DOMAIN = "synapse"
-EVENT_NAMESPACE = "digital_alchemy"
-QUERY_TIMEOUT=0.1
-RETRIES=3
-RETRY_DELAY=5
+"""
+Constants and type definitions for the Synapse integration.
+
+This module contains all configuration constants, error codes, and type
+definitions used throughout the Synapse custom component.
+"""
+
+# Application timeout settings
+APP_OFFLINE_DELAY = 30  # seconds - delay before marking app as offline
+DOMAIN = "synapse"  # Home Assistant domain name
+EVENT_NAMESPACE = "digital_alchemy"  # Event bus namespace for app communication
+QUERY_TIMEOUT = 0.1  # seconds - timeout for discovery queries
+RETRIES = 3  # number of retry attempts for failed operations
+RETRY_DELAY = 5  # seconds - base delay between retry attempts
+
+# Connection timeout settings
+CONNECTION_TIMEOUT = 60  # seconds - timeout for initial connection
+HEARTBEAT_TIMEOUT = 30   # seconds - timeout for heartbeat (same as APP_OFFLINE_DELAY)
+RECONNECT_DELAY = 5      # seconds - base delay for reconnection attempts
+MAX_RECONNECT_ATTEMPTS = 10  # maximum number of reconnection attempts
+
+# WebSocket Error Codes
+class SynapseErrorCodes:
+    """Error codes for Synapse WebSocket communication."""
+
+    # Registration errors
+    ALREADY_CONNECTED = "already_connected"
+    NOT_REGISTERED = "not_registered"
+    BRIDGE_NOT_FOUND = "bridge_not_found"
+
+    # Communication errors
+    REGISTRATION_FAILED = "registration_failed"
+    HEARTBEAT_FAILED = "heartbeat_failed"
+    UPDATE_FAILED = "update_failed"
+    CONFIGURATION_UPDATE_FAILED = "configuration_update_failed"
+    GOING_OFFLINE_FAILED = "going_offline_failed"
+
+    # System errors
+    INTERNAL_ERROR = "internal_error"
+
+    # Connection management errors
+    CONNECTION_TIMEOUT = "connection_timeout"
+    INVALID_MESSAGE_FORMAT = "invalid_message_format"
+    MESSAGE_TOO_LARGE = "message_too_large"
+    RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
+
+    # Configuration errors
+    CONFIGURATION_TOO_LARGE = "configuration_too_large"
+    ENTITY_VALIDATION_FAILED = "entity_validation_failed"
 
 class SynapseMetadata:
     """Entity device information for device registry."""
@@ -35,10 +78,9 @@ class SynapseApplication:
     username: str
     version: str
 
-# #MARK: Entities
+# Supported entity platforms
 PLATFORMS: list[str] = [
-    # Working -
-    #
+    # Currently implemented platforms
     "binary_sensor",
     "button",
     "date",
@@ -52,7 +94,7 @@ PLATFORMS: list[str] = [
     "text",
     "time",
     #
-    # High priority wishlist -
+    # High priority wishlist - planned for future implementation
     #
     # "image",
     # "media_player",
@@ -61,8 +103,7 @@ PLATFORMS: list[str] = [
     # "todo_list",
     # "update",
     #
-    # Low priority wishlist -
-    #
+    # Low priority wishlist - potential future additions
     #
     # "alarm_control_panel",
     # "camera",
@@ -78,8 +119,33 @@ PLATFORMS: list[str] = [
     # "water_heater",
 ]
 
-class SynapseBaseEntity:
-    """Common properties to all synapse entities"""
+# Entity domains that are currently supported and can be configured dynamically
+# This includes all domains that can be sent in app metadata during registration
+ENTITY_DOMAINS: list[str] = [
+    "sensor",
+    "switch",
+    "binary_sensor",
+    "button",
+    "climate",
+    "lock",
+    "number",
+    "select",
+    "text",
+    "date",
+    "time",
+    "datetime",
+    "scene",
+]
+
+# Note: Generated entities are now tracked explicitly in the bridge class
+# No patterns needed - entities are registered when created
+
+class SynapseBaseEntityData:
+    """Common properties shared by all Synapse entities.
+
+    This base class defines the standard properties that all entity types
+    inherit from, providing a consistent interface for entity configuration.
+    """
     attributes: object
     device_class: str | None = None
     entity_category: str | None = None
@@ -91,7 +157,8 @@ class SynapseBaseEntity:
     translation_key: str | None = None
     unique_id: str
 
-class SynapseSensorDefinition(SynapseBaseEntity):
+class SynapseSensorDefinition(SynapseBaseEntityData):
+    """Type definition for sensor entities with sensor-specific properties."""
     capability_attributes: int
     last_reset: str
     native_unit_of_measurement: str
@@ -100,69 +167,124 @@ class SynapseSensorDefinition(SynapseBaseEntity):
     suggested_display_precision: int
     unit_of_measurement: str
 
-class SynapseAlarmControlPanelDefinition(SynapseBaseEntity):
+class SynapseAlarmControlPanelDefinition(SynapseBaseEntityData):
+    """Type definition for alarm control panel entities."""
     changed_by: str
     code_arm_required: bool
     code_format: str
 
-class SynapseNumberDefinition(SynapseBaseEntity):
+class SynapseNumberDefinition(SynapseBaseEntityData):
+    """Type definition for number entities with numeric input properties."""
     max_value: float
     min_value: float
     mode: str
     state: float
     step: float
 
-class SynapseButtonDefinition(SynapseBaseEntity):
+class SynapseButtonDefinition(SynapseBaseEntityData):
+    """Type definition for button entities."""
     pass
-class SynapseBinarySensorDefinition(SynapseBaseEntity):
+
+class SynapseBinarySensorDefinition(SynapseBaseEntityData):
+    """Type definition for binary sensor entities."""
     pass
-class SynapseClimateDefinition(SynapseBaseEntity):
+
+class SynapseClimateDefinition(SynapseBaseEntityData):
+    """Type definition for climate entities."""
     pass
-class SynapseCoverDefinition(SynapseBaseEntity):
+
+class SynapseCoverDefinition(SynapseBaseEntityData):
+    """Type definition for cover entities."""
     pass
-class SynapseDateDefinition(SynapseBaseEntity):
+
+class SynapseDateDefinition(SynapseBaseEntityData):
+    """Type definition for date entities."""
     pass
-class SynapseDateTimeDefinition(SynapseBaseEntity):
+
+class SynapseDateTimeDefinition(SynapseBaseEntityData):
+    """Type definition for datetime entities."""
     pass
-class SynapseFanDefinition(SynapseBaseEntity):
+
+class SynapseFanDefinition(SynapseBaseEntityData):
+    """Type definition for fan entities."""
     pass
-class SynapseHumidifierDefinition(SynapseBaseEntity):
+
+class SynapseHumidifierDefinition(SynapseBaseEntityData):
+    """Type definition for humidifier entities."""
     pass
-class SynapseImageDefinition(SynapseBaseEntity):
+
+class SynapseImageDefinition(SynapseBaseEntityData):
+    """Type definition for image entities."""
     pass
-class SynapseLawnMowerDefinition(SynapseBaseEntity):
+
+class SynapseLawnMowerDefinition(SynapseBaseEntityData):
+    """Type definition for lawn mower entities."""
     pass
-class SynapseLightDefinition(SynapseBaseEntity):
+
+class SynapseLightDefinition(SynapseBaseEntityData):
+    """Type definition for light entities."""
     pass
-class SynapseLockDefinition(SynapseBaseEntity):
+
+class SynapseLockDefinition(SynapseBaseEntityData):
+    """Type definition for lock entities."""
     pass
-class SynapseMediaPlayerDefinition(SynapseBaseEntity):
+
+class SynapseMediaPlayerDefinition(SynapseBaseEntityData):
+    """Type definition for media player entities."""
     pass
-class SynapseNotifyDefinition(SynapseBaseEntity):
+
+class SynapseNotifyDefinition(SynapseBaseEntityData):
+    """Type definition for notify entities."""
     pass
-class SynapseRemoteDefinition(SynapseBaseEntity):
+
+class SynapseRemoteDefinition(SynapseBaseEntityData):
+    """Type definition for remote entities."""
     pass
-class SynapseSceneDefinition(SynapseBaseEntity):
+
+class SynapseSceneDefinition(SynapseBaseEntityData):
+    """Type definition for scene entities."""
     pass
-class SynapseSelectDefinition(SynapseBaseEntity):
+
+class SynapseSelectDefinition(SynapseBaseEntityData):
+    """Type definition for select entities."""
     pass
-class SynapseSirenDefinition(SynapseBaseEntity):
+
+class SynapseSirenDefinition(SynapseBaseEntityData):
+    """Type definition for siren entities."""
     pass
-class SynapseSwitchDefinition(SynapseBaseEntity):
+
+class SynapseSwitchDefinition(SynapseBaseEntityData):
+    """Type definition for switch entities."""
     pass
-class SynapseTextDefinition(SynapseBaseEntity):
+
+class SynapseTextDefinition(SynapseBaseEntityData):
+    """Type definition for text entities."""
     pass
-class SynapseTimeDefinition(SynapseBaseEntity):
+
+class SynapseTimeDefinition(SynapseBaseEntityData):
+    """Type definition for time entities."""
     pass
-class SynapseTodoListDefinition(SynapseBaseEntity):
+
+class SynapseTodoListDefinition(SynapseBaseEntityData):
+    """Type definition for todo list entities."""
     pass
-class SynapseUpdateDefinition(SynapseBaseEntity):
+
+class SynapseUpdateDefinition(SynapseBaseEntityData):
+    """Type definition for update entities."""
     pass
-class SynapseVacuumDefinition(SynapseBaseEntity):
+
+class SynapseVacuumDefinition(SynapseBaseEntityData):
+    """Type definition for vacuum entities."""
     pass
-class SynapseValveDefinition(SynapseBaseEntity):
+
+class SynapseValveDefinition(SynapseBaseEntityData):
+    """Type definition for valve entities."""
     pass
-class SynapseWaterHeaterDefinition(SynapseBaseEntity):
+
+class SynapseWaterHeaterDefinition(SynapseBaseEntityData):
+    """Type definition for water heater entities."""
     pass
-class SynapseCameraDefinition(SynapseBaseEntity):
+
+class SynapseCameraDefinition(SynapseBaseEntityData):
+    """Type definition for camera entities."""
     pass
