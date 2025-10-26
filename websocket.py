@@ -100,20 +100,15 @@ def get_bridge_for_connection(hass: HomeAssistant, connection: Any):
     domain_data = hass.data.get(DOMAIN, {})
 
     connection_id = id(connection)
-    logger.debug(f"Looking for connection with id: {connection_id}")
 
     # Search through all bridges to find one with this connection
     for unique_id, bridge in domain_data.items():
         if hasattr(bridge, '_websocket_connections'):
-            logger.debug(f"Bridge {unique_id} has connections: {list(bridge._websocket_connections.keys())}")
             for uid, conn in bridge._websocket_connections.items():
-                stored_conn_id = id(conn)
-                logger.debug(f"  Checking stored connection {uid}: {stored_conn_id} vs {connection_id}")
-                if conn == connection or stored_conn_id == connection_id:
-                    logger.debug(f"  Found match!")
+                if conn == connection or id(conn) == id(connection):
                     return bridge, uid
 
-    logger.warning(f"No bridge found for connection {connection_id}")
+    logger.warning(f"No bridge found for connection {id(connection)}")
     return None, None
 
 @websocket_api.websocket_command({
@@ -141,6 +136,7 @@ def get_bridge_for_connection(hass: HomeAssistant, connection: Any):
         vol.Optional("time"): list,
         vol.Optional("datetime"): list,
         vol.Optional("scene"): list,
+        vol.Optional("service"): list,
     }),
 })
 @websocket_api.async_response
@@ -572,6 +568,60 @@ async def handle_synapse_abandoned_entities(
         logger.error(f"Error handling abandoned entities check: {e}")
         connection.send_error(msg["id"], SynapseErrorCodes.INTERNAL_ERROR, str(e))
 
+@websocket_api.websocket_command({
+    vol.Required("type"): "synapse/service_call_response",
+    vol.Required("call_id"): str,
+    vol.Required("success"): bool,
+    vol.Optional("result"): dict,
+    vol.Optional("error"): str,
+})
+@websocket_api.async_response
+async def handle_synapse_service_call_response(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Handle service call responses from synapse apps."""
+    try:
+        # Find the bridge for this connection
+        bridge, unique_id = get_bridge_for_connection(hass, connection)
+
+        if bridge is None:
+            logger.warning("No bridge found for service call response")
+            connection.send_result(msg["id"], {
+                "success": False,
+                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
+                "message": "No bridge found for service call response - connection may be stale"
+            })
+            return
+
+        # Log the service call response
+        call_id = msg.get("call_id", "unknown")
+        success = msg.get("success", False)
+        result = msg.get("result", {})
+        error = msg.get("error", "")
+
+        if success:
+            logger.info(f"Service call {call_id} completed successfully: {result}")
+        else:
+            logger.warning(f"Service call {call_id} failed: {error}")
+
+        # For now, just acknowledge the response
+        # In a more sophisticated implementation, you might want to store the result
+        connection.send_result(msg["id"], {
+            "success": True,
+            "message": "Service call response received"
+        })
+
+    except vol.Invalid as e:
+        logger.warning(f"Invalid service call response message format: {e}")
+        connection.send_error(
+            msg["id"],
+            SynapseErrorCodes.INVALID_MESSAGE_FORMAT,
+            f"Invalid service call response format: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error handling service call response: {e}")
+        connection.send_error(msg["id"], SynapseErrorCodes.INTERNAL_ERROR, str(e))
+
 def register_websocket_handlers(hass: HomeAssistant) -> None:
     """Register all WebSocket command handlers."""
     websocket_api.async_register_command(hass, handle_synapse_register)
@@ -582,5 +632,6 @@ def register_websocket_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, handle_synapse_going_offline)
     websocket_api.async_register_command(hass, handle_synapse_get_health)
     websocket_api.async_register_command(hass, handle_synapse_abandoned_entities)
+    websocket_api.async_register_command(hass, handle_synapse_service_call_response)
 
     logger.info("Synapse WebSocket handlers registered")

@@ -137,6 +137,12 @@ ENTITY_DOMAINS: list[str] = [
     "scene",
 ]
 
+# Service domains that can be configured dynamically
+# Services are different from entities - they're callable functions
+SERVICE_DOMAINS: list[str] = [
+    "service",
+]
+
 # Note: Generated entities are now tracked explicitly in the bridge class
 # No patterns needed - entities are registered when created
 
@@ -288,3 +294,18 @@ class SynapseWaterHeaterDefinition(SynapseBaseEntityData):
 class SynapseCameraDefinition(SynapseBaseEntityData):
     """Type definition for camera entities."""
     pass
+
+class SynapseServiceDefinition:
+    """Type definition for service entities.
+
+    Services are different from regular entities - they're callable functions
+    that can be triggered via Home Assistant's service system.
+    """
+    name: str
+    unique_id: str
+    domain: str | None = None  # Service domain (defaults to synapse domain)
+    description: str | None = None
+    fields: dict | None = None  # Service call parameters schema
+    target: dict | None = None  # Service target (entity_id, device_id, etc.)
+    icon: str | None = None
+    entity_category: str | None = None
