@@ -62,6 +62,7 @@ from .const import (
     DOMAIN,
     PLATFORMS,
     ENTITY_DOMAINS,
+    SERVICE_DOMAINS,
     SynapseApplication,
     SynapseMetadata,
     SynapseErrorCodes,
@@ -109,11 +110,16 @@ class SynapseBridge:
         # Track current entities and devices for removal detection
         self._current_entities: Dict[str, set] = {}  # domain -> set of unique_ids
         self._current_devices: set = set()  # set of device unique_ids
+        self._current_services: set = set()  # set of service unique_ids
         self._cleanup_mode: str = "delete"  # Default cleanup mode
         self._current_configuration: Dict[str, Any] = {}  # Current dynamic configuration
 
         # Track generated entities (created by Python code, not app registration)
         self._generated_entities: set = set()  # set of unique_ids for generated entities
+
+        # Track registered services for removal: unique_id -> {name, domain}
+        self._service_registry: Dict[str, Dict[str, Any]] = {}
+
         hass.data.setdefault(DOMAIN, {})[self.metadata_unique_id] = self
 
         # WebSocket connection tracking
@@ -779,6 +785,7 @@ class SynapseBridge:
         self._cleanup_mode = cleanup_mode
 
         # Step 5: Process app metadata (entities, hash, etc.)
+        self.logger.info(f"Processing app metadata for reconnection of '{unique_id}'")
         metadata_result = await self._process_app_metadata(unique_id, app_metadata)
         if not metadata_result["success"]:
             self.logger.error(f"Failed to process app metadata during registration: {metadata_result.get('error')}")
@@ -1117,8 +1124,16 @@ class SynapseBridge:
             if domain in app_metadata:
                 entity_config[domain] = app_metadata[domain]
 
-        # Update current configuration
-        self._current_configuration = entity_config
+        # Extract service configuration from metadata
+        service_config = {}
+        for domain in SERVICE_DOMAINS:
+            if domain in app_metadata:
+                service_config[domain] = app_metadata[domain]
+
+        # Update current configuration (includes services for tracking)
+        self._current_configuration = entity_config.copy()
+        if service_config:
+            self._current_configuration.update(service_config)
 
         # Process entities if present
         if entity_config:
@@ -1131,6 +1146,27 @@ class SynapseBridge:
                     "success": False,
                     "error": f"Entity processing failed: {str(e)}"
                 }
+
+        # Process services (including empty service_config to cleanup orphaned services)
+        # Check if any service domains exist in app_metadata
+        has_service_domains = any(domain in app_metadata for domain in SERVICE_DOMAINS)
+        total_services = sum(len(services) for services in service_config.values() if isinstance(services, list))
+
+        if has_service_domains:
+            self.logger.info(f"Processing {total_services} services from app metadata (current tracked: {len(self._current_services)})")
+            try:
+                await self._process_services(service_config)
+            except Exception as e:
+                self.logger.error(f"Error processing services from metadata: {e}")
+                return {
+                    "success": False,
+                    "error": f"Service processing failed: {str(e)}"
+                }
+        elif self._current_services:
+            # If no services in config but we have tracked services, clean them up
+            self.logger.info(f"No services in config but {len(self._current_services)} are tracked - cleaning up orphaned services")
+            await self._remove_orphaned_services(self._current_services.copy())
+            self._current_services.clear()
 
         # Update hash if provided
         current_hash = app_metadata.get("hash", "")
@@ -1234,9 +1270,11 @@ class SynapseBridge:
         self._current_configuration = configuration
 
         # Refresh devices first
+        self.logger.debug("Refreshing devices before entity refresh")
         await self._refresh_devices()
 
         # Refresh entities for each domain
+        self.logger.debug("Refreshing entities for all domains")
         await self._refresh_entities(configuration)
 
     def format_device_info(self, device: Optional[SynapseMetadata] = None) -> Dict[str, Any]:
@@ -1363,6 +1401,8 @@ class SynapseBridge:
 
             # Track new entities by domain
             new_entities: Dict[str, set] = {}
+
+            self.logger.debug(f"Current entities before refresh: {self._current_entities}")
 
             # Process each domain
             for domain in PLATFORMS:
@@ -1636,6 +1676,38 @@ class SynapseBridge:
         if total_removed > 0:
             self.logger.info(f"Removed {total_removed} orphaned entities")
 
+    async def _remove_orphaned_services(self, orphaned_service_unique_ids: set) -> None:
+        """
+        Remove services that are no longer in the configuration.
+
+        Args:
+            orphaned_service_unique_ids: Set of service unique_ids to remove
+        """
+        if not orphaned_service_unique_ids:
+            return
+
+        self.logger.info(f"Removing {len(orphaned_service_unique_ids)} orphaned services")
+
+        for service_unique_id in orphaned_service_unique_ids:
+            try:
+                service_info = self._service_registry.get(service_unique_id)
+                if service_info:
+                    service_name = service_info.get("name")
+                    service_domain = service_info.get("domain", DOMAIN)
+
+                    if service_name:
+                        # Unregister the service from Home Assistant
+                        self.hass.services.async_remove(service_domain, service_name)
+                        self.logger.info(f"Unregistered service: {service_domain}.{service_name} (unique_id: {service_unique_id})")
+
+                    # Remove from registry
+                    del self._service_registry[service_unique_id]
+                else:
+                    self.logger.warning(f"No service registry entry found for unique_id: {service_unique_id}")
+
+            except Exception as e:
+                self.logger.error(f"Error removing service {service_unique_id}: {e}")
+
     def _get_device_id_for_entity(self, entity_data: Dict[str, Any]) -> Optional[str]:
         """
         Get the device ID for an entity.
@@ -1685,3 +1757,196 @@ class SynapseBridge:
         # Fallback: no device association
         self.logger.debug(f"Entity {entity_data.get('unique_id')} has no device association")
         return None
+
+    async def _process_services(self, service_config: Dict[str, Any]) -> None:
+        """Process service configuration from app metadata.
+
+        Args:
+            service_config: Dictionary containing service definitions
+        """
+        self.logger.info(f"Processing service config: {service_config}")
+
+        # Track new services
+        new_services = set()
+
+        for domain, services in service_config.items():
+            if not isinstance(services, list):
+                self.logger.warning(f"Services for domain {domain} is not a list: {services}")
+                continue
+
+            self.logger.info(f"Processing {len(services)} services for domain {domain}")
+
+            for service_def in services:
+                self.logger.info(f"Registering service: {service_def}")
+                try:
+                    await self._register_service(service_def)
+
+                    # Track the service
+                    service_unique_id = service_def.get("unique_id")
+                    if service_unique_id:
+                        new_services.add(service_unique_id)
+                except Exception as e:
+                    self.logger.error(f"Error registering service {service_def.get('name', 'unknown')}: {e}")
+
+        # Remove orphaned services
+        orphaned_services = self._current_services - new_services
+        if orphaned_services:
+            await self._remove_orphaned_services(orphaned_services)
+
+        # Update current services tracking
+        self._current_services = new_services
+
+        self.logger.info(f"Service processing complete: {len(new_services)} active services, {len(orphaned_services)} removed")
+
+    async def _register_service(self, service_def: Dict[str, Any]) -> None:
+        """Register a single service with Home Assistant.
+
+        Args:
+            service_def: Service definition dictionary matching services.yaml format
+        """
+        service_name = service_def.get("name", "")
+        unique_id = service_def.get("unique_id", "")
+        service_domain = service_def.get("domain", DOMAIN)  # Allow custom domain, default to synapse
+
+        if not service_name or not unique_id:
+            self.logger.warning(f"Invalid service definition: missing name or unique_id")
+            return
+
+        # Check if service is already registered and unregister it first
+        if unique_id in self._service_registry:
+            existing_service = self._service_registry[unique_id]
+            existing_name = existing_service.get("name")
+            existing_domain = existing_service.get("domain", DOMAIN)
+            self.logger.info(f"Service {existing_domain}.{existing_name} (unique_id: {unique_id}) already registered, unregistering old service")
+            try:
+                self.hass.services.async_remove(existing_domain, existing_name)
+            except Exception as e:
+                self.logger.warning(f"Could not unregister old service {existing_domain}.{existing_name}: {e}")
+
+        # Create the service handler
+        async def service_handler(call: ServiceCall) -> None:
+            """Handle service calls by forwarding to the bridge."""
+            try:
+                # Forward the service call to the bridge for processing
+                result = await self.handle_service_call(unique_id, service_name, call.data)
+
+                # Log the result for debugging
+                if result.get("success", False):
+                    self.logger.debug(f"Service {service_name} executed successfully")
+                else:
+                    self.logger.warning(f"Service {service_name} failed: {result.get('error', 'Unknown error')}")
+
+            except Exception as e:
+                self.logger.error(f"Error executing service {service_name}: {e}")
+
+        try:
+            # Register the service schema first (this creates the UI and validation)
+            service_schema = {
+                "name": service_def.get("name", service_name),
+                "description": service_def.get("description", ""),
+            }
+
+            # Add fields if they exist (this creates the UI elements)
+            if service_def.get("fields"):
+                service_schema["fields"] = service_def["fields"]
+
+            # Add target if it exists (for entity targeting)
+            if service_def.get("target"):
+                service_schema["target"] = service_def["target"]
+
+            self.logger.info(f"Attempting to register service schema: {service_schema}")
+
+            # Register the service handler first
+            self.hass.services.async_register(
+                service_domain,
+                service_name,
+                service_handler
+            )
+
+            # Then register the service schema with Home Assistant
+            from homeassistant.helpers import service
+            service.async_set_service_schema(self.hass, service_domain, service_name, service_schema)
+
+            # Store service metadata for cleanup
+            self._service_registry[unique_id] = {
+                "name": service_name,
+                "domain": service_domain,
+                "definition": service_def
+            }
+
+            self.logger.info(f"Successfully registered service: {service_domain}.{service_name} (unique_id: {unique_id})")
+
+        except Exception as e:
+            self.logger.error(f"Failed to register service {service_name}: {e}")
+            import traceback
+            self.logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise
+
+    async def handle_service_call(self, service_unique_id: str, service_name: str, service_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle service calls from registered services.
+
+        This method processes service calls that were registered dynamically
+        by Synapse applications and forwards them to the appropriate app.
+
+        Args:
+            service_unique_id: The unique identifier for the service
+            service_name: The name of the service being called
+            service_data: The data passed to the service call
+
+        Returns:
+            Dict containing success status and response data
+        """
+        try:
+            # Find the WebSocket connection for this app (use the bridge's unique_id)
+            connection = None
+            for conn_unique_id, conn in self._websocket_connections.items():
+                if conn_unique_id == self.metadata_unique_id:
+                    connection = conn
+                    break
+
+            if not connection:
+                return {
+                    "success": False,
+                    "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
+                    "message": f"No active connection found for service {service_name}",
+                    "service_name": service_name,
+                    "service_unique_id": service_unique_id
+                }
+
+            # Send service call to the app via WebSocket
+            service_call_id = f"service_call_{int(time.time() * 1000)}"
+
+            # Create the service call message
+            service_message = {
+                "id": service_call_id,
+                "type": "synapse/service_call",
+                "service_name": service_name,
+                "service_data": service_data,
+                "service_unique_id": service_unique_id
+            }
+
+            # Send the message
+            connection.send_message(service_message)
+            self.logger.info(f"Sent service call {service_name} to app: {service_message}")
+
+            # For now, we'll return success immediately
+            # In a more sophisticated implementation, you might want to wait for a response
+            return {
+                "success": True,
+                "message": f"Service {service_name} call forwarded to app",
+                "service_name": service_name,
+                "service_unique_id": service_unique_id,
+                "call_id": service_call_id
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error handling service call {service_name}: {e}")
+            import traceback
+            self.logger.error(f"Full traceback: {traceback.format_exc()}")
+            return {
+                "success": False,
+                "error_code": SynapseErrorCodes.INTERNAL_ERROR,
+                "message": f"Service call failed: {str(e)}",
+                "service_name": service_name,
+                "service_unique_id": service_unique_id
+            }
