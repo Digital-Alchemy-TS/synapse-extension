@@ -263,64 +263,6 @@ async def handle_synapse_heartbeat(
         connection.send_error(msg["id"], SynapseErrorCodes.HEARTBEAT_FAILED, str(e))
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "synapse/update_entity",
-    vol.Required("unique_id"): vol.Length(min=1, max=255),
-    vol.Required("changes"): vol.Length(max=10000),
-})
-@websocket_api.async_response
-async def handle_synapse_update_entity(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
-) -> None:
-    """Handle entity updates from synapse apps."""
-    try:
-        # Check rate limiting
-        connection_id = str(id(connection))
-        if _check_rate_limit(connection_id, "update_entity", max_per_minute=300):  # 5 per second max
-            connection.send_error(
-                msg["id"],
-                SynapseErrorCodes.RATE_LIMIT_EXCEEDED,
-                "Too many entity updates. Please reduce frequency."
-            )
-            return
-
-        # Validate message size
-        is_valid, error_msg = _validate_message_size(msg, max_size=10000)  # 10KB for entity updates
-        if not is_valid:
-            connection.send_error(msg["id"], SynapseErrorCodes.MESSAGE_TOO_LARGE, error_msg)
-            return
-
-        entity_unique_id = msg["unique_id"]
-        changes = msg["changes"]
-
-        # Find the bridge for this connection
-        bridge, unique_id = get_bridge_for_connection(hass, connection)
-
-        if bridge is None:
-            logger.warning("No bridge found for entity update")
-            connection.send_result(msg["id"], {
-                "success": False,
-                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
-                "message": "No bridge found for entity update - connection may be stale"
-            })
-            return
-
-        # Handle the entity update
-        result = await bridge.handle_entity_update(entity_unique_id, changes)
-
-        connection.send_result(msg["id"], result)
-
-    except vol.Invalid as e:
-        logger.warning(f"Invalid entity update message format: {e}")
-        connection.send_error(
-            msg["id"],
-            SynapseErrorCodes.INVALID_MESSAGE_FORMAT,
-            f"Invalid entity update format: {str(e)}"
-        )
-    except Exception as e:
-        logger.error(f"Error handling entity update: {e}")
-        connection.send_error(msg["id"], SynapseErrorCodes.UPDATE_FAILED, str(e))
-
-@websocket_api.websocket_command({
     vol.Required("type"): "synapse/patch_entity",
     vol.Required("unique_id"): vol.Length(min=1, max=255),
     vol.Required("data"): dict,
@@ -650,12 +592,6 @@ def register_websocket_handlers(hass: HomeAssistant) -> None:
         logger.info("Registered: synapse/heartbeat")
     except Exception as e:
         logger.error(f"Failed to register synapse/heartbeat: {e}")
-
-    try:
-        websocket_api.async_register_command(hass, handle_synapse_update_entity)
-        logger.info("Registered: synapse/update_entity")
-    except Exception as e:
-        logger.error(f"Failed to register synapse/update_entity: {e}")
 
     try:
         websocket_api.async_register_command(hass, handle_synapse_patch_entity)
