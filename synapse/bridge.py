@@ -35,8 +35,10 @@ the synapse command namespace. The bridge handles:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
+import traceback
 from typing import Any, Dict, List, Optional
 
 from homeassistant.config_entries import ConfigEntry
@@ -52,8 +54,8 @@ from homeassistant.const import (
     ATTR_SW_VERSION,
     ATTR_VIA_DEVICE,
 )
-from homeassistant.core import callback, HomeAssistant
-from homeassistant.helpers import entity_registry as er, device_registry as dr
+from homeassistant.core import callback, HomeAssistant, ServiceCall
+from homeassistant.helpers import entity_registry as er, device_registry as dr, service
 from homeassistant.helpers.device_registry import DeviceInfo
 
 from homeassistant.components import websocket_api
@@ -825,8 +827,6 @@ class SynapseBridge:
         Returns:
             Dict containing heartbeat response and any configuration requests
         """
-        import time
-
         # Update heartbeat tracking
         self._last_heartbeat_time = time.time()
         self._reset_heartbeat_timer()
@@ -1006,7 +1006,6 @@ class SynapseBridge:
                                 # Check for JSON serializable values
                                 if isinstance(attr_value, (dict, list)):
                                     try:
-                                        import json
                                         json.dumps(attr_value)
                                     except (TypeError, ValueError):
                                         validation_errors.append(f"Attribute value for '{attr_key}' is not JSON serializable")
@@ -1538,7 +1537,6 @@ class SynapseBridge:
                     # Check for invalid attribute value types
                     if isinstance(value, (dict, list)):
                         try:
-                            import json
                             json.dumps(value)
                         except (TypeError, ValueError):
                             return False, f"Attribute value for '{key}' is not JSON serializable"
@@ -1629,7 +1627,6 @@ class SynapseBridge:
                 self.logger.info(f"Successfully created/updated entity: {entity_id.entity_id} ({entity_name})")
 
             except Exception as e:
-                import traceback
                 self.logger.error(f"Error processing entity {entity_data.get('unique_id', 'unknown')}: {e}")
                 self.logger.error(f"Full traceback: {traceback.format_exc()}")
                 skipped_count += 1
@@ -1716,30 +1713,15 @@ class SynapseBridge:
             entity_data: The entity configuration data
 
         Returns:
-            Optional device ID string from the device registry
+            Optional device ID string to use for entity registration
         """
         # Check if entity has a specific device_id declared
         declared_device_id = entity_data.get("device_id")
         if declared_device_id:
-            # Validate that the declared device exists
-            if declared_device_id in self._current_devices:
-                # Get the device registry to find the actual device ID
-                device_registry = dr.async_get(self.hass)
-                try:
-                    device_entry = device_registry.async_get_device(
-                        identifiers={(DOMAIN, declared_device_id)}
-                    )
-                    if device_entry:
-                        self.logger.debug(f"Entity {entity_data.get('unique_id')} associated with device {declared_device_id}")
-                        return device_entry.id
-                    else:
-                        self.logger.warning(f"Device {declared_device_id} not found in registry for entity {entity_data.get('unique_id')}")
-                except Exception as e:
-                    self.logger.error(f"Error looking up device {declared_device_id} for entity {entity_data.get('unique_id')}: {e}")
-            else:
-                self.logger.warning(f"Declared device {declared_device_id} not in current devices for entity {entity_data.get('unique_id')}")
+            self.logger.debug(f"Entity {entity_data.get('unique_id')} associated with device {declared_device_id}")
+            return declared_device_id
 
-        # If no device_id specified or device not found, associate with primary device
+        # If no device_id specified, associate with primary device
         if self.primary_device:
             device_registry = dr.async_get(self.hass)
             primary_device_unique_id = self.app_data.get("device", {}).get("unique_id")
@@ -1864,7 +1846,6 @@ class SynapseBridge:
             )
 
             # Then register the service schema with Home Assistant
-            from homeassistant.helpers import service
             service.async_set_service_schema(self.hass, service_domain, service_name, service_schema)
 
             # Store service metadata for cleanup
@@ -1878,7 +1859,6 @@ class SynapseBridge:
 
         except Exception as e:
             self.logger.error(f"Failed to register service {service_name}: {e}")
-            import traceback
             self.logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
 
@@ -1941,7 +1921,6 @@ class SynapseBridge:
 
         except Exception as e:
             self.logger.error(f"Error handling service call {service_name}: {e}")
-            import traceback
             self.logger.error(f"Full traceback: {traceback.format_exc()}")
             return {
                 "success": False,

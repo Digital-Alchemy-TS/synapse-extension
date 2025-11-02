@@ -87,9 +87,6 @@ class SynapseBaseEntity(Entity):
             device = self.bridge.via_primary_device.get(declared_device)
             if device is not None:
                 return device
-            # Don't log error during startup when device info isn't available yet
-            if self.bridge.online:
-                self.logger.error(f"{self.bridge.app_name}:{self.entity.get('name')} cannot find device info for {declared_device}")
 
         # Everything is associated with the app device if all else fails
         if self.bridge.primary_device is not None:
