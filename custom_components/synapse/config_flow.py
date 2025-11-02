@@ -33,7 +33,6 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow
 from homeassistant.const import CONF_NAME
 
-from .synapse.helpers import hex_to_object
 from .synapse.const import DOMAIN, EVENT_NAMESPACE, SynapseApplication, QUERY_TIMEOUT
 
 
@@ -66,11 +65,24 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
                 self.logger.error(ex)
                 errors["base"] = "unknown"
 
-        # Get the list of known good things
+        # Get the list of discovered apps
         try:
-            self.known_apps = await self.identify_all()
+            all_apps = await self.identify_all()
+
+            # Filter out apps that are already configured
+            existing_config_entries = self.hass.config_entries.async_entries(DOMAIN)
+            existing_unique_ids = {entry.data.get("unique_id") for entry in existing_config_entries}
+
+            # Only show apps that aren't already configured
+            self.known_apps = [
+                app for app in all_apps
+                if app.get("unique_id") not in existing_unique_ids
+            ]
+
             app_choices = {app["app"]: app["title"] for app in self.known_apps}
-        except Exception:
+            self.logger.info(f"Found {len(self.known_apps)} new apps (filtered from {len(all_apps)} total)")
+        except Exception as ex:
+            self.logger.error(f"Error during discovery: {ex}")
             errors["base"] = "unknown"
             app_choices = {}
 
@@ -96,23 +108,44 @@ class SynapseConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def identify_all(self) -> List[SynapseApplication]:
         """
-        Request all connected apps identify themselves
-        Already registered apps will ignore the request
+        Request all connected apps identify themselves via event bus.
+        Already registered apps will ignore the request.
         """
-        # set up listener
-        replies: List[str] = []
+        self.logger.info("Starting discovery via event bus")
+
+        # Set up listener for responses
+        replies: List[Dict[str, Any]] = []
+        event_handler_removed = False
+
         def handle_event(event: Any) -> None:
-            replies.append(event.data.get("compressed"))
-        remove = self.hass.bus.async_listen(f"{EVENT_NAMESPACE}/identify", handle_event)
+            """Handle identification responses from apps."""
+            # Accept raw JSON data from event (MVP discovery data: app, title, unique_id)
+            app_data = event.data
+            if app_data and isinstance(app_data, dict) and app_data.get("unique_id"):
+                replies.append(app_data)
+                self.logger.debug(f"Received discovery response: {len(replies)} apps found so far")
 
-        # emit reload request
-        self.hass.bus.async_fire(f"{EVENT_NAMESPACE}/discovery")
+        # Register event listener
+        remove_listener = self.hass.bus.async_listen(f"{EVENT_NAMESPACE}/identify", handle_event)
 
-        # Allow half second for replies
-        await asyncio.sleep(QUERY_TIMEOUT)
+        try:
+            # Emit discovery request on event bus
+            self.logger.info(f"Emitting discovery request: {EVENT_NAMESPACE}/discovery")
+            self.hass.bus.async_fire(f"{EVENT_NAMESPACE}/discovery")
 
-        # Stop listening
-        remove()
+            # Wait 1 second for replies
+            await asyncio.sleep(1.0)
 
-        # string[] -> dict[]
-        return [hex_to_object(hex_str) for hex_str in replies]
+            self.logger.info(f"Discovery complete: received {len(replies)} responses")
+        finally:
+            # Always clean up the event listener
+            if not event_handler_removed:
+                remove_listener()
+                event_handler_removed = True
+                self.logger.debug("Event listener removed")
+
+        # Replies are already dict objects (no compression/hex conversion needed)
+        apps = replies
+        self.logger.info(f"Discovered {len(apps)} apps")
+
+        return apps

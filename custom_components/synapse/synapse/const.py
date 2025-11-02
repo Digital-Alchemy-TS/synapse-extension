@@ -8,7 +8,7 @@ definitions used throughout the Synapse custom component.
 # Application timeout settings
 APP_OFFLINE_DELAY = 30  # seconds - delay before marking app as offline
 DOMAIN = "synapse"  # Home Assistant domain name
-EVENT_NAMESPACE = "digital_alchemy"  # Event bus namespace for app communication
+EVENT_NAMESPACE = "synapse"  # Event bus namespace for app communication
 QUERY_TIMEOUT = 0.1  # seconds - timeout for discovery queries
 RETRIES = 3  # number of retry attempts for failed operations
 RETRY_DELAY = 5  # seconds - base delay between retry attempts
