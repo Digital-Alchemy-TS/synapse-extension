@@ -174,11 +174,11 @@ async def handle_synapse_register(
 
         if bridge is None:
             logger.warning(f"No bridge found for unique_id: {unique_id}")
-            logger.info("Tip: Ensure the app is properly configured in Home Assistant and try restarting the app")
+            logger.info("Tip: Ensure the app is properly configured in Home Assistant via the config flow")
             connection.send_result(msg["id"], {
                 "success": False,
                 "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
-                "message": f"No bridge found for unique_id: {unique_id} - may still be initializing",
+                "message": f"No bridge found for unique_id: {unique_id} - app must be configured via the integration config flow first",
                 "unique_id": unique_id
             })
             return
@@ -622,16 +622,76 @@ async def handle_synapse_service_call_response(
         logger.error(f"Error handling service call response: {e}")
         connection.send_error(msg["id"], SynapseErrorCodes.INTERNAL_ERROR, str(e))
 
+_handlers_registered = False
+
+def ensure_handlers_registered(hass: HomeAssistant) -> None:
+    """Ensure websocket handlers are registered (lazy registration)."""
+    global _handlers_registered
+    if not _handlers_registered:
+        logger.warning("WebSocket handlers not registered - registering now")
+        register_websocket_handlers(hass)
+        _handlers_registered = True
+
 def register_websocket_handlers(hass: HomeAssistant) -> None:
     """Register all WebSocket command handlers."""
-    websocket_api.async_register_command(hass, handle_synapse_register)
-    websocket_api.async_register_command(hass, handle_synapse_heartbeat)
-    websocket_api.async_register_command(hass, handle_synapse_update_entity)
-    websocket_api.async_register_command(hass, handle_synapse_patch_entity)
-    websocket_api.async_register_command(hass, handle_synapse_update_configuration)
-    websocket_api.async_register_command(hass, handle_synapse_going_offline)
-    websocket_api.async_register_command(hass, handle_synapse_get_health)
-    websocket_api.async_register_command(hass, handle_synapse_abandoned_entities)
-    websocket_api.async_register_command(hass, handle_synapse_service_call_response)
+    global _handlers_registered
+    if _handlers_registered:
+        logger.debug("WebSocket handlers already registered, skipping")
+        return
+    logger.info("Registering Synapse WebSocket handlers...")
+    try:
+        websocket_api.async_register_command(hass, handle_synapse_register)
+        logger.info("Registered: synapse/register")
+    except Exception as e:
+        logger.error(f"Failed to register synapse/register: {e}")
 
-    logger.info("Synapse WebSocket handlers registered")
+    try:
+        websocket_api.async_register_command(hass, handle_synapse_heartbeat)
+        logger.info("Registered: synapse/heartbeat")
+    except Exception as e:
+        logger.error(f"Failed to register synapse/heartbeat: {e}")
+
+    try:
+        websocket_api.async_register_command(hass, handle_synapse_update_entity)
+        logger.info("Registered: synapse/update_entity")
+    except Exception as e:
+        logger.error(f"Failed to register synapse/update_entity: {e}")
+
+    try:
+        websocket_api.async_register_command(hass, handle_synapse_patch_entity)
+        logger.info("Registered: synapse/patch_entity")
+    except Exception as e:
+        logger.error(f"Failed to register synapse/patch_entity: {e}")
+
+    try:
+        websocket_api.async_register_command(hass, handle_synapse_update_configuration)
+        logger.info("Registered: synapse/update_configuration")
+    except Exception as e:
+        logger.error(f"Failed to register synapse/update_configuration: {e}")
+
+    try:
+        websocket_api.async_register_command(hass, handle_synapse_going_offline)
+        logger.info("Registered: synapse/going_offline")
+    except Exception as e:
+        logger.error(f"Failed to register synapse/going_offline: {e}")
+
+    try:
+        websocket_api.async_register_command(hass, handle_synapse_get_health)
+        logger.info("Registered: synapse/get_health")
+    except Exception as e:
+        logger.error(f"Failed to register synapse/get_health: {e}")
+
+    try:
+        websocket_api.async_register_command(hass, handle_synapse_abandoned_entities)
+        logger.info("Registered: synapse/abandoned_entities")
+    except Exception as e:
+        logger.error(f"Failed to register synapse/abandoned_entities: {e}")
+
+    try:
+        websocket_api.async_register_command(hass, handle_synapse_service_call_response)
+        logger.info("Registered: synapse/service_call_response")
+    except Exception as e:
+        logger.error(f"Failed to register synapse/service_call_response: {e}")
+
+    _handlers_registered = True
+    logger.info("Synapse WebSocket handlers registration complete")

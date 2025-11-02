@@ -19,8 +19,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     Initializes the component by registering WebSocket handlers and services.
     This is called once when the integration is loaded.
     """
+    logger.info("Synapse integration async_setup called - registering WebSocket handlers")
     # Register WebSocket command handlers for app communication
     register_websocket_handlers(hass)
+    # Mark as registered to avoid double registration
+    hass.data.setdefault(DOMAIN, {})["websocket_handlers_registered"] = True
+    logger.info("Synapse integration setup complete")
 
     # Register service handlers
     async def async_handle_reload(call: ServiceCall) -> None:
@@ -55,6 +59,13 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     Creates or retrieves a bridge instance for the app and initializes
     all supported entity platforms. This is called for each configured app.
     """
+    # Ensure websocket handlers are registered (in case async_setup wasn't called)
+    # Use a flag to avoid double registration
+    if DOMAIN not in hass.data or "websocket_handlers_registered" not in hass.data.get(DOMAIN, {}):
+        logger.info("WebSocket handlers not yet registered - registering now in async_setup_entry")
+        register_websocket_handlers(hass)
+        hass.data.setdefault(DOMAIN, {})["websocket_handlers_registered"] = True
+
     domain_data: Dict[str, SynapseBridge] = hass.data.setdefault(DOMAIN, {})
     bridge: SynapseBridge | None = None
 
