@@ -78,13 +78,13 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     unique_id = bridge.metadata_unique_id
     logger.info(f"Bridge setup complete for app '{bridge.app_name}' (unique_id: {unique_id})")
     hass.bus.async_fire(
-        "synapse/registration_ready",
+        "synapse/user_config_completed",
         {
             "unique_id": unique_id,
             "message": "Bridge is ready - please register via WebSocket"
         }
     )
-    logger.info(f"Sent registration_ready event for app '{unique_id}'")
+    logger.info(f"Sent user_config_completed event for app '{unique_id}'")
 
     return True
 
