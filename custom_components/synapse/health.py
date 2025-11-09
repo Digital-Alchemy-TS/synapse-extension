@@ -67,6 +67,13 @@ class SynapseHealthSensor(BinarySensorEntity):
         """Return True if the app is online."""
         return self.bridge.online
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes."""
+        return {
+            "application_unique_id": self.bridge.app_data.get("unique_id"),
+        }
+
     @callback
     def _handle_availability_update(self, event: Any) -> None:
         """Handle health status update.

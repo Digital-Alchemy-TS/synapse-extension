@@ -34,6 +34,23 @@ async def async_setup_entry(
     if entities:
         async_add_entities(SynapseButton(hass, bridge, entity) for entity in entities)
 
+    # Listen for registration events to add new entities dynamically
+    async def handle_registration(event):
+        """Handle registration events to add new button entities.
+
+        Called when an app sends updated configuration. Adds new button
+        entities that weren't present in the initial configuration.
+        """
+        if event.data.get("unique_id") == bridge.metadata_unique_id:
+            # Check if there are new button entities in the dynamic configuration
+            if bridge._current_configuration and "button" in bridge._current_configuration:
+                new_entities = bridge._current_configuration.get("button", [])
+                if new_entities:
+                    async_add_entities(SynapseButton(hass, bridge, entity) for entity in new_entities)
+
+    # Register the event listener
+    hass.bus.async_listen(bridge.event_name("register"), handle_registration)
+
 class SynapseButton(SynapseBaseEntity, ButtonEntity):
     """Home Assistant button entity for Synapse apps.
 

@@ -112,7 +112,7 @@ def get_bridge_for_connection(hass: HomeAssistant, connection: Any):
     return None, None
 
 @websocket_api.websocket_command({
-    vol.Required("type"): "synapse/register",
+    vol.Required("type"): "synapse/application_online_ready",
     vol.Required("unique_id"): vol.Length(min=1, max=255),
     vol.Required("app_metadata"): vol.Schema({
         vol.Required("app"): vol.Length(min=1, max=100),
@@ -583,9 +583,9 @@ def register_websocket_handlers(hass: HomeAssistant) -> None:
     logger.info("Registering Synapse WebSocket handlers...")
     try:
         websocket_api.async_register_command(hass, handle_synapse_register)
-        logger.info("Registered: synapse/register")
+        logger.info("Registered: synapse/application_online_ready")
     except Exception as e:
-        logger.error(f"Failed to register synapse/register: {e}")
+        logger.error(f"Failed to register synapse/application_online_ready: {e}")
 
     try:
         websocket_api.async_register_command(hass, handle_synapse_heartbeat)

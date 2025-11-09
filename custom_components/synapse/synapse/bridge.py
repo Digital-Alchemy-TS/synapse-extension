@@ -42,6 +42,7 @@ import traceback
 from typing import Any, Dict, List, Optional
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.const import (
     ATTR_CONFIGURATION_URL,
     ATTR_HW_VERSION,
@@ -103,6 +104,9 @@ class SynapseBridge:
         self.app_data: SynapseApplication = config_entry.data
         self.app_name: str = self.app_data.get("app", "")
         self.metadata_unique_id: str = self.app_data.get("unique_id", "")
+        # Temporary storage for device info from registration (since app_data is read-only)
+        self._registration_device: Optional[Dict[str, Any]] = None
+        self._registration_secondary_devices: List[Dict[str, Any]] = []
 
         # Instance-based state management (fixes global state issue)
         self._hash_dict: Dict[str, str] = {}
@@ -1134,6 +1138,17 @@ class SynapseBridge:
         if service_config:
             self._current_configuration.update(service_config)
 
+        # Store device info from registration metadata temporarily so devices can be created
+        # Note: self.app_data is read-only (mappingproxy), so we store device info separately
+        if "device" in app_metadata:
+            self._registration_device = app_metadata["device"]
+        else:
+            self._registration_device = None
+        if "secondary_devices" in app_metadata:
+            self._registration_secondary_devices = app_metadata["secondary_devices"]
+        else:
+            self._registration_secondary_devices = []
+
         # Process entities if present
         if entity_config:
             self.logger.info(f"Processing {sum(len(entities) for entities in entity_config.values() if isinstance(entities, list))} entities from app metadata")
@@ -1281,20 +1296,25 @@ class SynapseBridge:
         if device is None:
             device = self.app_data.get("device")
 
-        identifiers = {(DOMAIN, device.get("unique_id"))}
+        # Use device unique_id if provided, otherwise use metadata_unique_id as fallback
+        device_unique_id = device.get("unique_id") if device else None
+        if not device_unique_id:
+            device_unique_id = self.metadata_unique_id
+
+        identifiers = {(DOMAIN, device_unique_id)}
         connections = set()
 
         return DeviceInfo(
             identifiers=identifiers,
             connections=connections,
-            name=device.get("name"),
-            manufacturer=device.get("manufacturer") or device.get("default_manufacturer"),
-            model=device.get("model") or device.get("default_model"),
-            hw_version=device.get("hw_version"),
-            sw_version=device.get("sw_version"),
-            serial_number=device.get("serial_number"),
-            suggested_area=device.get("suggested_area"),
-            configuration_url=device.get("configuration_url"),
+            name=device.get("name") if device else None,
+            manufacturer=device.get("manufacturer") or device.get("default_manufacturer") if device else None,
+            model=device.get("model") or device.get("default_model") if device else None,
+            hw_version=device.get("hw_version") if device else None,
+            sw_version=device.get("sw_version") if device else None,
+            serial_number=device.get("serial_number") if device else None,
+            suggested_area=device.get("suggested_area") if device else None,
+            configuration_url=device.get("configuration_url") if device else None,
         )
 
     async def async_reload(self) -> None:
@@ -1339,31 +1359,109 @@ class SynapseBridge:
             # Track new devices
             new_devices = set()
 
-            # Process primary device
-            primary_device = self.app_data.get("device")
-            if primary_device:
-                device_unique_id = primary_device.get("unique_id")
-                if device_unique_id:
-                    new_devices.add(device_unique_id)
-                    device_info = self.format_device_info(primary_device)
-                    device_id = device_registry.async_get_or_create(
+            # Helper function to safely get or create device with config_entry_id migration
+            def _safe_get_or_create_device(device_info: Dict[str, Any], device_unique_id: str) -> str:
+                """Get or create device, handling config_entry_id migration if needed."""
+                # Check if device already exists
+                existing_device = device_registry.async_get_device(
+                    identifiers=device_info.get("identifiers", {(DOMAIN, device_unique_id)})
+                )
+
+                # If device exists with old config_entry_id, migrate it
+                if existing_device and existing_device.config_entries:
+                    old_entry_id = None
+                    for entry_id in existing_device.config_entries:
+                        if entry_id != self.config_entry.entry_id:
+                            old_entry_id = entry_id
+                            break
+
+                    if old_entry_id:
+                        # Try to migrate device to new config_entry_id
+                        self.logger.info(f"Migrating device {device_unique_id} from config_entry {old_entry_id} to {self.config_entry.entry_id}")
+                        try:
+                            # Update device to use new config_entry_id
+                            device_registry.async_update_device(
+                                existing_device.id,
+                                add_config_entry_id=self.config_entry.entry_id
+                            )
+                            # Try to remove old config_entry_id (will fail silently if entry still exists)
+                            try:
+                                device_registry.async_update_device(
+                                    existing_device.id,
+                                    remove_config_entry_id=old_entry_id
+                                )
+                            except Exception:
+                                # Old entry might still exist, that's okay
+                                pass
+                        except Exception as migrate_error:
+                            self.logger.warning(f"Failed to migrate device {device_unique_id}: {migrate_error}")
+
+                try:
+                    return device_registry.async_get_or_create(
                         config_entry_id=self.config_entry.entry_id,
                         **device_info
                     )
-                    self.primary_device = device_info
-                    self.logger.debug(f"Updated primary device: {device_unique_id}")
+                except HomeAssistantError as e:
+                    if "unknown config entry" in str(e).lower() and existing_device:
+                        self.logger.warning(f"Device {device_unique_id} has invalid config_entry_id, attempting to fix")
+                        try:
+                            # Remove invalid config_entry_ids
+                            for entry_id in list(existing_device.config_entries):
+                                if entry_id not in self.hass.config_entries.async_entry_ids():
+                                    device_registry.async_update_device(
+                                        existing_device.id,
+                                        remove_config_entry_id=entry_id
+                                    )
+                            # Now try again
+                            return device_registry.async_get_or_create(
+                                config_entry_id=self.config_entry.entry_id,
+                                **device_info
+                            )
+                        except Exception as fix_error:
+                            self.logger.error(f"Failed to fix device {device_unique_id}: {fix_error}")
+                            raise
+                    else:
+                        raise
+
+            # Process primary device - ALWAYS create a default device
+            # Use registration device info if available, otherwise fall back to app_data
+            primary_device = self._registration_device or self.app_data.get("device")
+
+            # Always use metadata_unique_id as the device unique_id (this is the app's unique_id)
+            default_device_unique_id = self.metadata_unique_id
+
+            if primary_device:
+                # Use the device info from metadata, but ensure it has a unique_id
+                device_info = self.format_device_info(primary_device)
+                # Override the identifiers to use the default device unique_id
+                device_info["identifiers"] = {(DOMAIN, default_device_unique_id)}
+                new_devices.add(default_device_unique_id)
+                device_id = _safe_get_or_create_device(device_info, default_device_unique_id)
+                self.primary_device = device_info
+                self.logger.info(f"Created/updated primary device: {default_device_unique_id} (from device metadata)")
+            else:
+                # Create a default device for the app if no device is specified
+                if default_device_unique_id:
+                    new_devices.add(default_device_unique_id)
+                    default_device_info = {
+                        "identifiers": {(DOMAIN, default_device_unique_id)},
+                        "name": self.app_name,
+                        "manufacturer": "Synapse",
+                        "model": "Synapse App",
+                    }
+                    device_id = _safe_get_or_create_device(default_device_info, default_device_unique_id)
+                    self.primary_device = default_device_info
+                    self.logger.info(f"Created default device: {default_device_unique_id}")
 
             # Process secondary devices
-            secondary_devices = self.app_data.get("secondary_devices", [])
+            # Use registration secondary devices if available, otherwise fall back to app_data
+            secondary_devices = self._registration_secondary_devices or self.app_data.get("secondary_devices", [])
             for device_data in secondary_devices:
                 device_unique_id = device_data.get("unique_id")
                 if device_unique_id:
                     new_devices.add(device_unique_id)
                     device_info = self.format_device_info(device_data)
-                    device_id = device_registry.async_get_or_create(
-                        config_entry_id=self.config_entry.entry_id,
-                        **device_info
-                    )
+                    device_id = _safe_get_or_create_device(device_info, device_unique_id)
                     self.via_primary_device[device_unique_id] = device_info
                     self.logger.debug(f"Updated secondary device: {device_unique_id}")
 
@@ -1587,16 +1685,60 @@ class SynapseBridge:
                 device_id = self._get_device_id_for_entity(entity_data)
                 self.logger.debug(f"Device ID for entity {unique_id}: {device_id}")
 
+                # Check if entity already exists with potentially invalid config_entry_id
+                existing_entity = entity_registry.async_get_entity_id(domain, DOMAIN, unique_id)
+
                 # Create or update entity in registry
                 self.logger.debug(f"Creating entity in registry: domain={domain}, unique_id={unique_id}")
-                entity_id = entity_registry.async_get_or_create(
-                    domain=domain,
-                    platform=DOMAIN,
-                    unique_id=unique_id,
-                    config_entry=self.config_entry,
-                    suggested_object_id=entity_data.get("suggested_object_id"),
-                    device_id=device_id
-                )
+
+                # If entity exists, check if it needs config_entry_id migration
+                if existing_entity:
+                    existing_entry = entity_registry.async_get(existing_entity)
+                    if existing_entry and existing_entry.config_entry_id != self.config_entry.entry_id:
+                        # Entity exists with old config_entry_id - migrate it
+                        self.logger.info(f"Migrating entity {existing_entity} from config_entry {existing_entry.config_entry_id} to {self.config_entry.entry_id}")
+                        try:
+                            entity_registry.async_update_entity(
+                                existing_entity,
+                                config_entry_id=self.config_entry.entry_id
+                            )
+                        except Exception as migrate_error:
+                            self.logger.warning(f"Failed to migrate entity {existing_entity} config_entry_id: {migrate_error}")
+                            # Continue to try creating/updating normally
+
+                try:
+                    entity_id = entity_registry.async_get_or_create(
+                        domain=domain,
+                        platform=DOMAIN,
+                        unique_id=unique_id,
+                        config_entry=self.config_entry,
+                        suggested_object_id=entity_data.get("suggested_object_id"),
+                        device_id=device_id
+                    )
+                except ValueError as e:
+                    # If validation fails due to config_entry_id, try to fix it
+                    if "unknown config entry" in str(e).lower() and existing_entity:
+                        self.logger.warning(f"Entity {existing_entity} has invalid config_entry_id, attempting to fix")
+                        try:
+                            # Remove the invalid config_entry_id first, then recreate
+                            entity_registry.async_update_entity(
+                                existing_entity,
+                                config_entry_id=None
+                            )
+                            # Now try again
+                            entity_id = entity_registry.async_get_or_create(
+                                domain=domain,
+                                platform=DOMAIN,
+                                unique_id=unique_id,
+                                config_entry=self.config_entry,
+                                suggested_object_id=entity_data.get("suggested_object_id"),
+                                device_id=device_id
+                            )
+                        except Exception as fix_error:
+                            self.logger.error(f"Failed to fix entity {existing_entity}: {fix_error}")
+                            raise
+                    else:
+                        raise
 
                 # Update entity properties if provided
                 update_data = {}
@@ -1713,26 +1855,56 @@ class SynapseBridge:
             entity_data: The entity configuration data
 
         Returns:
-            Optional device ID string to use for entity registration
+            Optional device ID string to use for entity registration (device registry ID, not unique_id)
         """
+        device_registry = dr.async_get(self.hass)
+        valid_entry_ids = set(self.hass.config_entries.async_entry_ids())
+
+        def _is_device_valid(device_entry) -> bool:
+            """Check if device has at least one valid config_entry_id."""
+            if not device_entry or not device_entry.config_entries:
+                return False
+            # Device is valid if it has at least one config_entry_id that still exists
+            return any(entry_id in valid_entry_ids for entry_id in device_entry.config_entries)
+
         # Check if entity has a specific device_id declared
         declared_device_id = entity_data.get("device_id")
         if declared_device_id:
-            self.logger.debug(f"Entity {entity_data.get('unique_id')} associated with device {declared_device_id}")
-            return declared_device_id
+            # Look up the device in the registry by unique_id
+            try:
+                device_entry = device_registry.async_get_device(
+                    identifiers={(DOMAIN, declared_device_id)}
+                )
+                if device_entry:
+                    if _is_device_valid(device_entry):
+                        self.logger.debug(f"Entity {entity_data.get('unique_id')} associated with device {declared_device_id} (registry ID: {device_entry.id})")
+                        return device_entry.id
+                    else:
+                        self.logger.warning(f"Device {declared_device_id} has invalid config_entry_id(s), skipping device association for entity {entity_data.get('unique_id')}")
+                        return None
+                else:
+                    self.logger.warning(f"Device {declared_device_id} not found in registry for entity {entity_data.get('unique_id')}")
+                    return None
+            except Exception as e:
+                self.logger.error(f"Error looking up device {declared_device_id} for entity {entity_data.get('unique_id')}: {e}")
+                return None
 
         # If no device_id specified, associate with primary device
+        # The primary device always uses metadata_unique_id as its unique_id
         if self.primary_device:
-            device_registry = dr.async_get(self.hass)
-            primary_device_unique_id = self.app_data.get("device", {}).get("unique_id")
+            primary_device_unique_id = self.metadata_unique_id
             if primary_device_unique_id:
                 try:
                     device_entry = device_registry.async_get_device(
                         identifiers={(DOMAIN, primary_device_unique_id)}
                     )
                     if device_entry:
-                        self.logger.debug(f"Entity {entity_data.get('unique_id')} associated with primary device {primary_device_unique_id}")
-                        return device_entry.id
+                        if _is_device_valid(device_entry):
+                            self.logger.debug(f"Entity {entity_data.get('unique_id')} associated with primary device {primary_device_unique_id}")
+                            return device_entry.id
+                        else:
+                            self.logger.warning(f"Primary device {primary_device_unique_id} has invalid config_entry_id(s), skipping device association for entity {entity_data.get('unique_id')}")
+                            return None
                 except Exception as e:
                     self.logger.error(f"Error looking up primary device {primary_device_unique_id} for entity {entity_data.get('unique_id')}: {e}")
 
