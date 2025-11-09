@@ -1423,35 +1423,31 @@ class SynapseBridge:
                     else:
                         raise
 
-            # Process primary device - ALWAYS create a default device
+            # Process primary device - ALWAYS create a primary device
+            # Always use metadata_unique_id as the device unique_id (this is the app's unique_id)
+            primary_device_unique_id = self.metadata_unique_id
+
             # Use registration device info if available, otherwise fall back to app_data
             primary_device = self._registration_device or self.app_data.get("device")
 
-            # Always use metadata_unique_id as the device unique_id (this is the app's unique_id)
-            default_device_unique_id = self.metadata_unique_id
-
             if primary_device:
-                # Use the device info from metadata, but ensure it has a unique_id
+                # Use the device info from metadata
                 device_info = self.format_device_info(primary_device)
-                # Override the identifiers to use the default device unique_id
-                device_info["identifiers"] = {(DOMAIN, default_device_unique_id)}
-                new_devices.add(default_device_unique_id)
-                device_id = _safe_get_or_create_device(device_info, default_device_unique_id)
-                self.primary_device = device_info
-                self.logger.info(f"Created/updated primary device: {default_device_unique_id} (from device metadata)")
             else:
-                # Create a default device for the app if no device is specified
-                if default_device_unique_id:
-                    new_devices.add(default_device_unique_id)
-                    default_device_info = {
-                        "identifiers": {(DOMAIN, default_device_unique_id)},
-                        "name": self.app_name,
-                        "manufacturer": "Synapse",
-                        "model": "Synapse App",
-                    }
-                    device_id = _safe_get_or_create_device(default_device_info, default_device_unique_id)
-                    self.primary_device = default_device_info
-                    self.logger.info(f"Created default device: {default_device_unique_id}")
+                # Create default device info if no device metadata provided
+                device_info = {
+                    "identifiers": {(DOMAIN, primary_device_unique_id)},
+                    "name": self.app_name,
+                    "manufacturer": "Synapse",
+                    "model": "Synapse App",
+                }
+
+            # Override the identifiers to always use the primary device unique_id
+            device_info["identifiers"] = {(DOMAIN, primary_device_unique_id)}
+            new_devices.add(primary_device_unique_id)
+            device_id = _safe_get_or_create_device(device_info, primary_device_unique_id)
+            self.primary_device = device_info
+            self.logger.info(f"Created/updated primary device: {primary_device_unique_id}")
 
             # Process secondary devices
             # Use registration secondary devices if available, otherwise fall back to app_data
