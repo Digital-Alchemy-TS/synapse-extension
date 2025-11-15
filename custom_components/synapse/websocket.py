@@ -17,7 +17,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 
-from .synapse.const import DOMAIN, SynapseErrorCodes, CONNECTION_TIMEOUT, MAX_RECONNECT_ATTEMPTS
+from .synapse.const import DOMAIN, SynapseErrorCodes
 
 DOMAIN_WS = f"{DOMAIN}_ws"
 
@@ -110,6 +110,69 @@ def get_bridge_for_connection(hass: HomeAssistant, connection: Any):
 
     logger.warning(f"No bridge found for connection {id(connection)}")
     return None, None
+
+def _send_re_registration_request(connection: websocket_api.ActiveConnection, unique_id: str = None) -> None:
+    """
+    Send a re-registration request event to the app when desync is detected.
+
+    This tells the app to resend its registration message (application_online_ready).
+    Used when the bridge doesn't recognize the connection (desync situation).
+
+    Args:
+        connection: The WebSocket connection to send the message to
+        unique_id: Optional unique_id to include in the event (if known)
+    """
+    try:
+        re_registration_message = {
+            "type": "event",
+            "event": {
+                "event_type": "synapse/request_re_registration",
+                "data": {
+                    "message": "Connection desync detected - please re-register",
+                    "action": "resend_registration"
+                }
+            }
+        }
+        # Include unique_id if provided (allows client to verify it's for them)
+        if unique_id:
+            re_registration_message["event"]["data"]["unique_id"] = unique_id
+
+        connection.send_message(re_registration_message)
+        logger.info(f"Sent re-registration request to connection {id(connection)}" + (f" (unique_id: {unique_id})" if unique_id else ""))
+    except Exception as e:
+        logger.error(f"Failed to send re-registration request: {e}")
+
+def _handle_bridge_not_found(
+    connection: websocket_api.ActiveConnection,
+    msg: dict,
+    operation: str,
+    unique_id: str = None
+) -> None:
+    """
+    Handle the case where no bridge is found for a connection (desync detected).
+
+    Sends a re-registration request to the app and returns an error response.
+
+    Args:
+        connection: The WebSocket connection
+        msg: The original message (may contain unique_id)
+        operation: Description of the operation being performed (for logging)
+        unique_id: Optional unique_id from the message (preferred over extracting from msg)
+    """
+    logger.warning(f"No bridge found for {operation} - connection desync detected, requesting re-registration")
+
+    # Use provided unique_id, or try to extract from message if not provided
+    if not unique_id:
+        unique_id = msg.get("unique_id")
+
+    _send_re_registration_request(connection, unique_id)
+
+    connection.send_result(msg["id"], {
+        "success": False,
+        "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
+        "message": f"No bridge found for {operation} - connection may be stale. Re-registration requested.",
+        "requires_reregistration": True
+    })
 
 @websocket_api.websocket_command({
     vol.Required("type"): "synapse/application_online_ready",
@@ -210,6 +273,7 @@ async def handle_synapse_register(
 @websocket_api.websocket_command({
     vol.Required("type"): "synapse/heartbeat",
     vol.Required("hash"): vol.Length(min=1, max=64),
+    vol.Optional("unique_id"): vol.Length(min=1, max=255),
 })
 @websocket_api.async_response
 async def handle_synapse_heartbeat(
@@ -228,22 +292,18 @@ async def handle_synapse_heartbeat(
             return
 
         current_hash = msg["hash"]
+        heartbeat_unique_id = msg.get("unique_id")  # Get unique_id from heartbeat message
 
         # Find the bridge for this connection
         bridge, unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
-            logger.warning("No bridge found for heartbeat - connection may be stale")
-            logger.info("Tip: Check if the app is properly registered in Home Assistant configuration")
-            connection.send_result(msg["id"], {
-                "success": False,
-                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
-                "message": "No bridge found for heartbeat - connection may be stale"
-            })
+            # Use unique_id from heartbeat message if available, otherwise try to extract from msg
+            _handle_bridge_not_found(connection, msg, "heartbeat", heartbeat_unique_id)
             return
 
-        # Handle the heartbeat
-        result = await bridge.handle_heartbeat(unique_id, current_hash)
+        # Handle the heartbeat (pass connection for re-registration when coming back online)
+        result = await bridge.handle_heartbeat(unique_id, current_hash, connection)
 
         # If hash drift was detected, we might want to send additional commands
         if result.get("hash_drift_detected", False):
@@ -296,12 +356,7 @@ async def handle_synapse_patch_entity(
         bridge, unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
-            logger.warning("No bridge found for entity patch")
-            connection.send_result(msg["id"], {
-                "success": False,
-                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
-                "message": "No bridge found for entity patch - connection may be stale"
-            })
+            _handle_bridge_not_found(connection, msg, "entity patch")
             return
 
         # Handle the entity patch
@@ -354,12 +409,7 @@ async def handle_synapse_update_configuration(
         bridge, bridge_unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
-            logger.warning("No bridge found for configuration update")
-            connection.send_result(msg["id"], {
-                "success": False,
-                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
-                "message": "No bridge found for configuration update - connection may be stale"
-            })
+            _handle_bridge_not_found(connection, msg, "configuration update")
             return
 
         # Handle the configuration update
@@ -391,12 +441,7 @@ async def handle_synapse_going_offline(
         bridge, unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
-            logger.warning("No bridge found for going offline message")
-            connection.send_result(msg["id"], {
-                "success": False,
-                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
-                "message": "No bridge found for going offline message - connection may be stale"
-            })
+            _handle_bridge_not_found(connection, msg, "going offline message")
             return
 
         # Handle the going offline request
@@ -431,12 +476,7 @@ async def handle_synapse_get_health(
         bridge, bridge_unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
-            logger.warning("No bridge found for health check")
-            connection.send_result(msg["id"], {
-                "success": False,
-                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
-                "message": "No bridge found for health check - connection may be stale"
-            })
+            _handle_bridge_not_found(connection, msg, "health check")
             return
 
         # Get health information
@@ -486,12 +526,7 @@ async def handle_synapse_abandoned_entities(
         bridge, unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
-            logger.warning("No bridge found for abandoned entities check")
-            connection.send_result(msg["id"], {
-                "success": False,
-                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
-                "message": "No bridge found for abandoned entities check - connection may be stale"
-            })
+            _handle_bridge_not_found(connection, msg, "abandoned entities check")
             return
 
         # Get abandoned entities information
@@ -527,12 +562,7 @@ async def handle_synapse_service_call_response(
         bridge, unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
-            logger.warning("No bridge found for service call response")
-            connection.send_result(msg["id"], {
-                "success": False,
-                "error_code": SynapseErrorCodes.BRIDGE_NOT_FOUND,
-                "message": "No bridge found for service call response - connection may be stale"
-            })
+            _handle_bridge_not_found(connection, msg, "service call response")
             return
 
         # Log the service call response
