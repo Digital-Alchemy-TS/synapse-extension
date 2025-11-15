@@ -1303,17 +1303,20 @@ class SynapseBridge:
     async def async_reload(self) -> None:
         """Reload the bridge and update local info"""
 
-        # Check if we have an active WebSocket connection
-        if not self.is_unique_id_connected(self.metadata_unique_id):
+        # Get the actual unique_id from the registered connection (use what app sent, not config entry)
+        if not self._websocket_connections:
             self.logger.warning(f"App '{self.app_name}' has no active WebSocket connection for reload")
             return
 
+        # Use the unique_id from the actual registered connection
+        connected_unique_id = next(iter(self._websocket_connections.keys()))
+
         try:
             # Request re-registration from the app
-            self.logger.info(f"Requesting re-registration for app '{self.app_name}'")
+            self.logger.info(f"Requesting re-registration for app '{self.app_name}' (unique_id: {connected_unique_id})")
 
-            # Send re-registration request to the app
-            success = await self._send_re_registration_request(self.metadata_unique_id)
+            # Send re-registration request to the app using the connection's unique_id
+            success = await self._send_re_registration_request(connected_unique_id)
 
             if not success:
                 self.logger.warning(f"Failed to send re-registration request to app '{self.app_name}'")

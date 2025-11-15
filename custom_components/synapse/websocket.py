@@ -145,7 +145,8 @@ def _send_re_registration_request(connection: websocket_api.ActiveConnection, un
 def _handle_bridge_not_found(
     connection: websocket_api.ActiveConnection,
     msg: dict,
-    operation: str
+    operation: str,
+    unique_id: str = None
 ) -> None:
     """
     Handle the case where no bridge is found for a connection (desync detected).
@@ -156,11 +157,14 @@ def _handle_bridge_not_found(
         connection: The WebSocket connection
         msg: The original message (may contain unique_id)
         operation: Description of the operation being performed (for logging)
+        unique_id: Optional unique_id from the message (preferred over extracting from msg)
     """
     logger.warning(f"No bridge found for {operation} - connection desync detected, requesting re-registration")
 
-    # Try to extract unique_id from message if available (helps client verify it's for them)
-    unique_id = msg.get("unique_id")
+    # Use provided unique_id, or try to extract from message if not provided
+    if not unique_id:
+        unique_id = msg.get("unique_id")
+
     _send_re_registration_request(connection, unique_id)
 
     connection.send_result(msg["id"], {
@@ -269,6 +273,7 @@ async def handle_synapse_register(
 @websocket_api.websocket_command({
     vol.Required("type"): "synapse/heartbeat",
     vol.Required("hash"): vol.Length(min=1, max=64),
+    vol.Optional("unique_id"): vol.Length(min=1, max=255),
 })
 @websocket_api.async_response
 async def handle_synapse_heartbeat(
@@ -287,12 +292,14 @@ async def handle_synapse_heartbeat(
             return
 
         current_hash = msg["hash"]
+        heartbeat_unique_id = msg.get("unique_id")  # Get unique_id from heartbeat message
 
         # Find the bridge for this connection
         bridge, unique_id = get_bridge_for_connection(hass, connection)
 
         if bridge is None:
-            _handle_bridge_not_found(connection, msg, "heartbeat")
+            # Use unique_id from heartbeat message if available, otherwise try to extract from msg
+            _handle_bridge_not_found(connection, msg, "heartbeat", heartbeat_unique_id)
             return
 
         # Handle the heartbeat (pass connection for re-registration when coming back online)
