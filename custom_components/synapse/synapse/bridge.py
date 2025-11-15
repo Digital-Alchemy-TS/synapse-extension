@@ -72,8 +72,6 @@ from .const import (
     APP_OFFLINE_DELAY,
     CONNECTION_TIMEOUT,
     HEARTBEAT_TIMEOUT,
-    RECONNECT_DELAY,
-    MAX_RECONNECT_ATTEMPTS,
 )
 
 
@@ -132,7 +130,6 @@ class SynapseBridge:
         self._websocket_connections: Dict[str, Any] = {}
         self._connection_timestamps: Dict[str, float] = {}  # Track when connections were established
         self._connection_timeout_timers: Dict[str, asyncio.TimerHandle] = {}  # Connection timeout timers
-        self._reconnect_attempts: Dict[str, int] = {}  # Track reconnection attempts
         self.online: bool = False
         self._heartbeat_timer: Optional[asyncio.TimerHandle] = None
         self._last_heartbeat_time: Optional[float] = None
@@ -189,7 +186,6 @@ class SynapseBridge:
         self.logger.info(f"WebSocket connection established for app '{unique_id}'")
         self._websocket_connections[unique_id] = connection
         self._connection_timestamps[unique_id] = time.time()
-        self._reconnect_attempts[unique_id] = 0
 
         # Set up connection timeout timer
         self._setup_connection_timeout(unique_id)
@@ -222,16 +218,16 @@ class SynapseBridge:
                 timer.cancel()
             del self._connection_timeout_timers[unique_id]
 
-        # Reset reconnection attempts
-        if unique_id in self._reconnect_attempts:
-            del self._reconnect_attempts[unique_id]
-
         if not self._websocket_connections:
             # No more connections, stop heartbeat monitoring
             if self._heartbeat_timer:
                 self._heartbeat_timer.cancel()
                 self._heartbeat_timer = None
+            was_online = self.online
             self.online = False
+            # Fire health event to update entity availability when going offline
+            if was_online:
+                self.hass.bus.async_fire(self.event_name("health"))
 
     def _setup_connection_timeout(self, unique_id: str) -> None:
         """Set up a connection timeout timer for a specific connection."""
@@ -343,7 +339,7 @@ class SynapseBridge:
 
     async def _handle_connection_failure(self, unique_id: str, error: str) -> None:
         """
-        Handle connection failure and attempt recovery.
+        Handle connection failure - immediately mark as offline.
 
         Args:
             unique_id: The unique identifier for the failed connection
@@ -351,39 +347,11 @@ class SynapseBridge:
         """
         self.logger.warning(f"Connection failure for app '{unique_id}': {error}")
 
-        # Increment reconnection attempts
-        attempts = self._reconnect_attempts.get(unique_id, 0) + 1
-        self._reconnect_attempts[unique_id] = attempts
-
-        if attempts <= MAX_RECONNECT_ATTEMPTS:
-            self.logger.info(f"Attempting reconnection for app '{unique_id}' (attempt {attempts}/{MAX_RECONNECT_ATTEMPTS})")
-
-            # Calculate delay with exponential backoff
-            delay = RECONNECT_DELAY * (2 ** (attempts - 1))
-
-            # Schedule reconnection attempt
-            self.hass.loop.call_later(
-                delay,
-                lambda: self._attempt_reconnection(unique_id)
-            )
-        else:
-            self.logger.error(f"Max reconnection attempts reached for app '{unique_id}' - giving up")
-            # Clean up the connection
+        # Immediately mark as offline and unregister the broken connection
+        if unique_id in self._websocket_connections:
             self.unregister_websocket_connection(unique_id)
-            # Fire health event
+            # Fire health event to update entity availability
             self.hass.bus.async_fire(self.event_name("health"))
-
-    def _attempt_reconnection(self, unique_id: str) -> None:
-        """Attempt to reconnect a failed connection."""
-        if unique_id not in self._websocket_connections:
-            # Connection was already cleaned up
-            return
-
-        self.logger.info(f"Reconnection attempt for app '{unique_id}'")
-
-        # Reset reconnection attempts if we're back online
-        if self.online:
-            self._reconnect_attempts[unique_id] = 0
 
     def is_unique_id_connected(self, unique_id: str) -> bool:
         """
@@ -433,13 +401,11 @@ class SynapseBridge:
             }
 
         connection_time = self._connection_timestamps.get(unique_id, 0)
-        reconnect_attempts = self._reconnect_attempts.get(unique_id, 0)
         uptime = time.time() - connection_time if connection_time > 0 else 0
 
         return {
             "connected": True,
             "uptime_seconds": int(uptime),
-            "reconnect_attempts": reconnect_attempts,
             "online": self.online,
             "last_heartbeat": self._last_heartbeat_time
         }
@@ -713,22 +679,35 @@ class SynapseBridge:
         self.online = False
 
         # Fire health event to update entity availability
-        self.hass.bus.async_fire(f"{DOMAIN}/health/{self.app_name}")
+        self.hass.bus.async_fire(self.event_name("health"))
 
-    def request_configuration(self, unique_id: str) -> Dict[str, Any]:
+    async def _send_re_registration_request(self, unique_id: str) -> bool:
         """
-        Format a configuration request message to send to an app.
+        Send a re-registration request to an app.
+
+        This tells the app to resend its registration message. Used when:
+        - Hash drift is detected (config changed)
+        - Connection desync is detected
+        - Manual reload is requested
 
         Args:
             unique_id: The unique identifier for the app
 
         Returns:
-            Dict containing the request message
+            bool: True if message was sent successfully, False otherwise
         """
-        return {
-            "type": "synapse/request_configuration",
-            "unique_id": unique_id
+        re_registration_message = {
+            "type": "event",
+            "event": {
+                "event_type": "synapse/request_re_registration",
+                "data": {
+                    "unique_id": unique_id,
+                    "message": "Re-registration requested - please resend registration",
+                    "action": "resend_registration"
+                }
+            }
         }
+        return await self.send_to_app(unique_id, re_registration_message)
 
     async def handle_registration(self, unique_id: str, app_metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -772,15 +751,14 @@ class SynapseBridge:
         # Check if hash has changed since last connection
         hash_changed = False
         if last_known_hash and current_hash and last_known_hash != current_hash:
-            self.logger.info(f"Configuration changed for app '{unique_id}', requesting update")
+            self.logger.info(f"Configuration changed for app '{unique_id}', requesting re-registration")
             hash_changed = True
 
-            # Trigger immediate configuration sync
-            request_message = self.request_configuration(unique_id)
-            sent_successfully = await self.send_to_app(unique_id, request_message)
+            # Request re-registration to sync configuration
+            sent_successfully = await self._send_re_registration_request(unique_id)
 
             if not sent_successfully:
-                self.logger.warning(f"Failed to send configuration request during registration for app '{unique_id}'")
+                self.logger.warning(f"Failed to send re-registration request during registration for app '{unique_id}'")
         elif not last_known_hash and current_hash:
             self.logger.info(f"First time registration for app '{unique_id}'")
         elif not current_hash:
@@ -802,12 +780,8 @@ class SynapseBridge:
                 "unique_id": unique_id
             }
 
-        # Step 6: Registration successful - reset reconnection attempts
+        # Step 6: Registration successful
         self.logger.info(f"Registration successful for app '{unique_id}'")
-
-        # Reset reconnection attempts on successful registration
-        if unique_id in self._reconnect_attempts:
-            self._reconnect_attempts[unique_id] = 0
 
         return {
             "success": True,
@@ -820,13 +794,14 @@ class SynapseBridge:
             "unique_id": unique_id
         }
 
-    async def handle_heartbeat(self, unique_id: str, current_hash: str) -> Dict[str, Any]:
+    async def handle_heartbeat(self, unique_id: str, current_hash: str, connection: Any = None) -> Dict[str, Any]:
         """
         Handle heartbeat from app via WebSocket.
 
         Args:
             unique_id: The unique identifier for the app
             current_hash: The current configuration hash from the app
+            connection: Optional WebSocket connection object (for re-registration when coming back online)
 
         Returns:
             Dict containing heartbeat response and any configuration requests
@@ -841,27 +816,35 @@ class SynapseBridge:
 
         if was_offline:
             self.logger.info(f"App '{self.app_name}' restored contact via heartbeat")
+
+            # Re-register the connection to ensure it's up-to-date (wipes out previous reference)
+            if connection is not None:
+                self.logger.info(f"Re-registering connection for '{unique_id}' after heartbeat restore")
+                # Update the connection reference and reset timers
+                self._websocket_connections[unique_id] = connection
+                self._connection_timestamps[unique_id] = time.time()
+                self._reset_connection_timeout(unique_id)
+
             # Fire health event to update entity availability
-            self.hass.bus.async_fire(f"{DOMAIN}/health/{self.app_name}")
+            self.hass.bus.async_fire(self.event_name("health"))
 
         # Get the last known hash for this app
         last_known_hash = self.get_last_known_hash(unique_id)
 
         # Check for hash drift
         if last_known_hash and current_hash != last_known_hash:
-            self.logger.info(f"Configuration drift detected for app '{unique_id}', requesting update")
+            self.logger.info(f"Configuration drift detected for app '{unique_id}', requesting re-registration")
 
-            # Send configuration request to the app
-            request_message = self.request_configuration(unique_id)
-            sent_successfully = await self.send_to_app(unique_id, request_message)
+            # Request re-registration to sync configuration
+            sent_successfully = await self._send_re_registration_request(unique_id)
 
             if sent_successfully:
                 return {
                     "success": True,
                     "heartbeat_received": True,
                     "hash_drift_detected": True,
-                    "request_configuration": True,
-                    "message": "Hash drift detected - configuration request sent",
+                    "re_registration_requested": True,
+                    "message": "Hash drift detected - re-registration requested",
                     "last_known_hash": last_known_hash,
                     "current_hash": current_hash
                 }
@@ -870,8 +853,8 @@ class SynapseBridge:
                     "success": False,
                     "heartbeat_received": True,
                     "hash_drift_detected": True,
-                    "request_configuration": False,
-                    "message": "Hash drift detected but failed to send configuration request",
+                    "re_registration_requested": False,
+                    "message": "Hash drift detected but failed to send re-registration request",
                     "last_known_hash": last_known_hash,
                     "current_hash": current_hash
                 }
@@ -881,7 +864,7 @@ class SynapseBridge:
             "success": True,
             "heartbeat_received": True,
             "hash_drift_detected": False,
-            "request_configuration": False,
+            "re_registration_requested": False,
             "message": "Heartbeat received - hash unchanged"
         }
 
@@ -1326,27 +1309,27 @@ class SynapseBridge:
             return
 
         try:
-            # Request configuration update from the app
-            self.logger.info(f"Requesting configuration update for app '{self.app_name}'")
+            # Request re-registration from the app
+            self.logger.info(f"Requesting re-registration for app '{self.app_name}'")
 
-            # Send configuration request to the app
-            request_message = {
-                "type": "event",
-                "event_type": "synapse/request_configuration"
-            }
-
-            success = await self.send_to_app(self.metadata_unique_id, request_message)
+            # Send re-registration request to the app
+            success = await self._send_re_registration_request(self.metadata_unique_id)
 
             if not success:
-                self.logger.warning(f"Failed to send configuration request to app '{self.app_name}'")
+                self.logger.warning(f"Failed to send re-registration request to app '{self.app_name}'")
+                # Don't set online - connection is broken
+                return
+
+            # Don't override online status here - let heartbeat mechanism handle availability
+            # The online status should only be set by:
+            # 1. Successful registration (register_websocket_connection)
+            # 2. Successful heartbeats (handle_heartbeat)
+            # 3. Explicit offline messages (handle_going_offline)
+            # 4. Connection failures (unregister_websocket_connection)
 
         except Exception as e:
             self.logger.error(f"Error during reload for app '{self.app_name}': {e}")
-
-        # Only mark as online if we have an active connection
-        if self.is_unique_id_connected(self.metadata_unique_id):
-            # this counts as a heartbeat
-            self.online = True
+            # Don't set online on error
 
     async def _refresh_devices(self) -> None:
         """Refresh device registry entries"""
