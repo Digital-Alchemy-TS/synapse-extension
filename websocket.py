@@ -247,6 +247,25 @@ async def handle_synapse_register(
             return
         logger.info(f"Bridge found for unique_id: {unique_id}")
 
+        # Check if already connected and if so, verify the connection object matches
+        if bridge.is_unique_id_connected(unique_id):
+            # Check if the stored connection is actually this connection
+            stored_connection = bridge._websocket_connections.get(unique_id)
+            if stored_connection is not connection and id(stored_connection) != id(connection):
+                # Stale connection detected - unregister it and allow re-registration
+                logger.info(f"Stale connection detected for '{unique_id}', unregistering and allowing re-registration")
+                bridge.unregister_websocket_connection(unique_id)
+            else:
+                # Same connection trying to register again - this is an error
+                logger.warning(f"App '{unique_id}' attempting to register with same connection")
+                connection.send_result(msg["id"], {
+                    "success": False,
+                    "error_code": SynapseErrorCodes.ALREADY_CONNECTED,
+                    "message": f"Unique ID {unique_id} is already connected",
+                    "unique_id": unique_id
+                })
+                return
+
         # Handle the registration
         result = await bridge.handle_registration(unique_id, app_metadata)
 

@@ -671,15 +671,18 @@ class SynapseBridge:
         )
 
     def _handle_heartbeat_timeout(self) -> None:
-        """Handle heartbeat timeout - mark app as offline."""
+        """Handle heartbeat timeout - mark app as offline and unregister stale connections."""
         if not self._websocket_connections:
             return  # No connections to monitor
 
-        self.logger.warning(f"App '{self.app_name}' heartbeat timeout - marking offline")
-        self.online = False
+        self.logger.warning(f"App '{self.app_name}' heartbeat timeout - marking offline and unregistering connections")
 
-        # Fire health event to update entity availability
-        self.hass.bus.async_fire(self.event_name("health"))
+        # Unregister all connections (they're stale if heartbeat timed out)
+        for unique_id in list(self._websocket_connections.keys()):
+            self.unregister_websocket_connection(unique_id)
+
+        # Note: unregister_websocket_connection already sets online = False and fires health event
+        # when the last connection is removed, so we don't need to do it again here
 
     async def _send_re_registration_request(self, unique_id: str) -> bool:
         """
@@ -725,14 +728,13 @@ class SynapseBridge:
         """
 
         # Step 1: Check if unique_id is already connected
+        # Note: Connection object validation is done in websocket handler before calling this
+        # This check is a safety net, but the websocket handler should have already handled stale connections
         if self.is_unique_id_connected(unique_id):
-            self.logger.warning(f"Registration failed: app '{unique_id}' is already connected")
-            return {
-                "success": False,
-                "error_code": SynapseErrorCodes.ALREADY_CONNECTED,
-                "message": f"Unique ID {unique_id} is already connected",
-                "unique_id": unique_id
-            }
+            # This should rarely happen if websocket handler is working correctly
+            # But if it does, we should still allow re-registration to fix desync
+            self.logger.warning(f"Registration check: app '{unique_id}' appears connected, but allowing re-registration to handle potential desync")
+            # Don't reject - allow registration to proceed which will update the connection
 
         # Step 2: Check if app is registered in config
         if not self.is_app_registered(unique_id):
