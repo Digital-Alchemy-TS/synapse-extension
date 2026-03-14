@@ -1,0 +1,14 @@
+{
+  "services": {
+    "reload": {
+      "name": "Reload",
+      "description": "Ask a Synapse application to re-send the entity list. If no app is provided, all connected apps are targeted.",
+      "fields": {
+        "app": {
+          "name": "App",
+          "description": "The name of the app to reload. If omitted, all connected apps are targeted."
+        }
+      }
+    }
+  }
+}
