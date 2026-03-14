@@ -6,7 +6,8 @@ definitions used throughout the Synapse custom component.
 """
 
 # Application timeout settings
-APP_OFFLINE_DELAY = 30  # seconds - delay before marking app as offline
+HEARTBEAT_INTERVAL = 30  # seconds - expected heartbeat cadence from the app
+APP_OFFLINE_DELAY = 75  # seconds - allow jitter/reconnect before marking offline
 DOMAIN = "synapse"  # Home Assistant domain name
 EVENT_NAMESPACE = "synapse"  # Event bus namespace for app communication
 QUERY_TIMEOUT = 0.1  # seconds - timeout for discovery queries
@@ -15,7 +16,7 @@ RETRY_DELAY = 5  # seconds - base delay between retry attempts
 
 # Connection timeout settings
 CONNECTION_TIMEOUT = 60  # seconds - timeout for initial connection
-HEARTBEAT_TIMEOUT = 30   # seconds - timeout for heartbeat (same as APP_OFFLINE_DELAY)
+HEARTBEAT_TIMEOUT = APP_OFFLINE_DELAY  # seconds - timeout for heartbeat
 RECONNECT_DELAY = 5      # seconds - base delay for reconnection attempts
 MAX_RECONNECT_ATTEMPTS = 10  # maximum number of reconnection attempts
 

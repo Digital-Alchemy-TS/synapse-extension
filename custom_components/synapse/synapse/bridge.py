@@ -664,9 +664,10 @@ class SynapseBridge:
         if self._heartbeat_timer:
             self._heartbeat_timer.cancel()
 
-        # Set timer for APP_OFFLINE_DELAY seconds
+        # Use a timeout longer than the expected heartbeat cadence so minor
+        # scheduling/network delays do not flap the whole app offline.
         self._heartbeat_timer = self.hass.loop.call_later(
-            APP_OFFLINE_DELAY,
+            HEARTBEAT_TIMEOUT,
             self._handle_heartbeat_timeout
         )
 
@@ -674,6 +675,21 @@ class SynapseBridge:
         """Handle heartbeat timeout - mark app as offline and unregister stale connections."""
         if not self._websocket_connections:
             return  # No connections to monitor
+
+        baseline = self._last_heartbeat_time
+        if baseline is None and self._connection_timestamps:
+            baseline = max(self._connection_timestamps.values())
+
+        if baseline is not None:
+            elapsed = time.time() - baseline
+            if elapsed < HEARTBEAT_TIMEOUT:
+                self.logger.debug(
+                    "Ignoring stale heartbeat timeout for app '%s'; last activity %.1fs ago",
+                    self.app_name,
+                    elapsed,
+                )
+                self._reset_heartbeat_timer()
+                return
 
         self.logger.warning(f"App '{self.app_name}' heartbeat timeout - marking offline and unregistering connections")
 
